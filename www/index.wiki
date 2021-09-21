@@ -1,0 +1,4 @@
+<title>Home</title>
+
+This repository contains contributed software for
+[https://zettelstore.de|Zettelstore]. Some of the software may be experimental.
