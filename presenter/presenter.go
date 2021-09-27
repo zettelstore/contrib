@@ -19,7 +19,11 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
+
+	"golang.org/x/term"
 
 	"zettelstore.de/z/api"
 	"zettelstore.de/z/client"
@@ -49,11 +53,47 @@ func main() {
 	http.ListenAndServe(listenAddr, nil)
 }
 
-func getClient(ctx context.Context, base string, withauth bool) (*client.Client, error) {
+func getClient(ctx context.Context, base string, withAuth bool) (*client.Client, error) {
 	if base == "" {
 		base = "http://127.0.0.1:23123"
 	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return nil, err
+	}
+	username, password := "", ""
+	if uinfo := u.User; uinfo != nil {
+		username = uinfo.Username()
+		if pw, ok := uinfo.Password(); ok {
+			password = pw
+		}
+		withAuth = true
+	}
 	c := client.NewClient(base)
+	if withAuth {
+		if username == "" {
+			io.WriteString(os.Stderr, "Username: ")
+			_, err := fmt.Fscanln(os.Stdin, &username)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if password == "" {
+			io.WriteString(os.Stderr, "Password: ")
+			pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+			io.WriteString(os.Stderr, "\n")
+			if err != nil {
+				return nil, err
+			}
+			password = string(pw)
+		}
+		c.SetAuth(username, password)
+		err := c.Authenticate(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return c, nil
 }
 
