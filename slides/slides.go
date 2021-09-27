@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"html"
@@ -38,6 +39,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Fix an error in slidy.js
+	slidy2js = strings.ReplaceAll(slidy2js, "</script>", "<\\/script>")
+
 	http.HandleFunc("/", makeHandler(&cfg))
 	listenAddr := ":29549"
 	fmt.Println("Listening:", listenAddr)
@@ -115,27 +120,26 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		fmt.Fprintf(w, "Error retrieving zettel %s: %s\n", zid, err)
 		return
 	}
-	role := jz.Meta[meta.KeyRole]
-	if role == slidesRole {
-		writeSlideTOC(ctx, w, c, zid)
+	m := jz.Meta
+	role := m[meta.KeyRole]
+	if role == slidesRole && writeSlideTOC(ctx, w, c, zid) {
 		return
 	}
 
-	writeHTMLZettel(ctx, w, c, zid)
+	writeHTMLZettel(ctx, w, c, zid, m)
 }
 
-func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client, zid id.Zid) {
+func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client, zid id.Zid) bool {
 	o, err := c.GetZettelOrder(ctx, zid)
 	if err != nil {
-		writeHTMLZettel(ctx, w, c, zid)
-		return
+		return false
 	}
 	m := o.Meta
 	offset, title, subtitle := 1, getTitle(m), m["subtitle"]
 	if title != "" {
-		offset += 1
+		offset++
 	}
-	writeHTMLHeader(w)
+	writeHTMLHeader(w, m[meta.KeyLang])
 	io.WriteString(w, "<title>TODO: TOC Slide</title>\n")
 	writeHTMLBody(w)
 	if title != "" {
@@ -158,15 +162,16 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 	}
 	io.WriteString(w, "</ol>\n")
 	writeHTMLFooter(w)
+	return true
 }
 
-func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid id.Zid) {
+func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid id.Zid, m map[string]string) {
 	content, err := c.GetParsedZettel(ctx, zid, api.EncoderHTML)
 	if err != nil {
 		fmt.Fprintf(w, "Error retrieving parsed zettel %s: %s\n", zid, err)
 		return
 	}
-	writeHTMLHeader(w)
+	writeHTMLHeader(w, m[meta.KeyLang])
 	io.WriteString(w, "<title>TODO: Title Zettel</title>\n")
 	writeHTMLBody(w)
 	io.WriteString(w, "<h1>TODO: Title Zettel</h1>\n")
@@ -178,18 +183,17 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	ctx := r.Context()
 	o, err := cfg.c.GetZettelOrder(ctx, zid)
 	if err != nil {
-		writeHTMLZettel(ctx, w, cfg.c, zid)
+		writeHTMLZettel(ctx, w, cfg.c, zid, map[string]string{})
 		return
 	}
-	writeHTMLHeader(w)
 	m := o.Meta
+	writeHTMLHeader(w, m[meta.KeyLang])
 	title, subtitle := getTitle(m), m["subtitle"]
 	io.WriteString(w, "<title>TODO: Title Slides</title>\n")
 	if copyright := getCopyright(cfg, m); copyright != "" {
 		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))
 	}
-	io.WriteString(w, "<link rel=\"stylesheet\" type=\"text/css\" media=\"screen, projection, print\" href=\"http://www.w3.org/Talks/Tools/Slidy2/styles/slidy.css\" />\n")
-	io.WriteString(w, "<script src=\"http://www.w3.org/Talks/Tools/Slidy2/scripts/slidy.js\" charset=\"utf-8\" type=\"text/javascript\"></script>\n")
+	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", slidy2css)
 	writeHTMLBody(w)
 
 	if title != "" {
@@ -216,6 +220,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		io.WriteString(w, content)
 		io.WriteString(w, "</div>\n")
 	}
+	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)
 	writeHTMLFooter(w)
 }
 
@@ -225,7 +230,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 		fmt.Fprintf(w, "Error retrieving zettel list %s: %s\n", r.URL.Query(), err)
 		return
 	}
-	writeHTMLHeader(w)
+	writeHTMLHeader(w, "")
 	io.WriteString(w, "<title>TODO: Title List</title>\n")
 	writeHTMLBody(w)
 	io.WriteString(w, "<h1>TODO: Title List</h1>\n")
@@ -242,9 +247,15 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	writeHTMLFooter(w)
 }
 
-func writeHTMLHeader(w http.ResponseWriter) {
+func writeHTMLHeader(w http.ResponseWriter, lang string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, "<!DOCTYPE html>\n<html>\n<head>\n")
+	io.WriteString(w, "<!DOCTYPE html>\n")
+	if lang == "" {
+		io.WriteString(w, "<html>\n")
+	} else {
+		fmt.Fprintf(w, "<html lang=\"%s\">\n", lang)
+	}
+	io.WriteString(w, "<head>\n")
 }
 
 func writeHTMLBody(w http.ResponseWriter) {
@@ -286,3 +297,9 @@ func getCopyright(cfg *slidesConfig, m map[string]string) string {
 	}
 	return cfg.copyright
 }
+
+//go:embed slidy2/slidy.css
+var slidy2css string
+
+//go:embed slidy2/slidy.js
+var slidy2js string
