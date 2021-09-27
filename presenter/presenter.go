@@ -33,6 +33,13 @@ import (
 
 func main() {
 	withAuth := flag.Bool("a", false, "Zettelstore needs authentication")
+	listenAddress := flag.String("l", ":23120", "Listen address")
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "Usage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+		io.WriteString(out, "  [URL] URL of Zettelstore (default: \"http://127.0.0.1:23123\")\n")
+	}
 	flag.Parse()
 	ctx := context.Background()
 	c, err := getClient(ctx, flag.Arg(0), *withAuth)
@@ -48,9 +55,8 @@ func main() {
 	slidy2js = strings.ReplaceAll(slidy2js, "</script>", "<\\/script>")
 
 	http.HandleFunc("/", makeHandler(&cfg))
-	listenAddr := ":29549"
-	fmt.Println("Listening:", listenAddr)
-	http.ListenAndServe(listenAddr, nil)
+	fmt.Println("Listening:", *listenAddress)
+	http.ListenAndServe(*listenAddress, nil)
 }
 
 func getClient(ctx context.Context, base string, withAuth bool) (*client.Client, error) {
