@@ -2,3 +2,5 @@
 
 This repository contains contributed software for
 [https://zettelstore.de|Zettelstore]. Some of the software may be experimental.
+
+  *  [/dir?ci=tip&name=presenter|Zettel Presenter]: create a web-based presentation from some zettel.

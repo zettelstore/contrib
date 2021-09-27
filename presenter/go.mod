@@ -1,4 +1,4 @@
-module slides
+module zettelstore.de/contrib/presenter
 
 go 1.17
 
