@@ -38,9 +38,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	http.HandleFunc("/", makeHandler(c, &cfg))
-	fmt.Println("Listening:", cfg.listenAddr)
-	http.ListenAndServe(cfg.listenAddr, nil)
+	http.HandleFunc("/", makeHandler(&cfg))
+	listenAddr := ":29549"
+	fmt.Println("Listening:", listenAddr)
+	http.ListenAndServe(listenAddr, nil)
 }
 
 func getClient(ctx context.Context, base string, withauth bool) (*client.Client, error) {
@@ -54,47 +55,53 @@ func getClient(ctx context.Context, base string, withauth bool) (*client.Client,
 const configZettel = id.Zid(9000001000)
 
 type slidesConfig struct {
-	listenAddr   string
+	c            *client.Client
 	slideSetRole string
+	author       string
+	copyright    string
 }
 
 func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	result := slidesConfig{
-		listenAddr:   ":29549",
+		c:            c,
 		slideSetRole: "slideset",
 	}
 	jz, err := c.GetZettelJSON(ctx, configZettel)
 	if err != nil {
 		return result, nil // TODO: check 404 vs other codes
 	}
-	if la, ok := jz.Meta["listen-addr"]; ok {
-		result.listenAddr = la
-	}
-	if ssr, ok := jz.Meta["slideset-role"]; ok {
+	m := jz.Meta
+	if ssr, ok := m["slideset-role"]; ok {
 		result.slideSetRole = ssr
+	}
+	if author, ok := m["author"]; ok {
+		result.author = author
+	}
+	if copyright, ok := m["copyright"]; ok {
+		result.copyright = copyright
 	}
 	return result, nil
 }
 
-func makeHandler(c *client.Client, cfg *slidesConfig) http.HandlerFunc {
+func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/" {
-			processZettel(w, r, c, id.DefaultHomeZid, cfg.slideSetRole)
+			processZettel(w, r, cfg.c, id.DefaultHomeZid, cfg.slideSetRole)
 			return
 		}
 		if zid, err := id.Parse(path[1:]); err == nil {
-			processZettel(w, r, c, zid, cfg.slideSetRole)
+			processZettel(w, r, cfg.c, zid, cfg.slideSetRole)
 			return
 		}
 		if strings.HasPrefix(path, "/sl/") {
 			if zid, err := id.Parse(path[4:]); err == nil {
-				processSlideSet(w, r, c, zid)
+				processSlideSet(w, r, cfg, zid)
 				return
 			}
 		}
 		if len(path) == 2 && ' ' < path[1] && path[1] <= 'z' {
-			processList(w, r, c)
+			processList(w, r, cfg.c)
 			return
 		}
 		http.Error(w, fmt.Sprintf("Unhandled request %q", r.URL), http.StatusNotFound)
@@ -123,11 +130,21 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 		writeHTMLZettel(ctx, w, c, zid)
 		return
 	}
+	m := o.Meta
+	offset, title, subtitle := 1, getTitle(m), m["subtitle"]
+	if title != "" {
+		offset += 1
+	}
 	writeHTMLHeader(w)
 	io.WriteString(w, "<title>TODO: TOC Slide</title>\n")
 	writeHTMLBody(w)
-	io.WriteString(w, "<h1>TODO: TOC Slides</h1>\n")
-	io.WriteString(w, "<p>TODO: Initial content</p>\n")
+	if title != "" {
+		fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
+		if subtitle != "" {
+			fmt.Fprintf(w, "<h2>%s</h2>\n", html.EscapeString(subtitle))
+		}
+	}
+	// TODO: io.WriteString(w, "<p>TODO: Initial content</p>\n")
 	fmt.Fprintf(w, "<p><a href=\"/sl/%s\">Start</a></p>\n", zid)
 	io.WriteString(w, "<ol>\n")
 	for i, sl := range o.List {
@@ -135,7 +152,7 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 			w,
 			"<li><a href=\"/sl/%s#(%d)\">%s</a></li>\n",
 			zid,
-			i+1,
+			i+offset,
 			html.EscapeString(getTitleZid(sl.Meta, sl.ID)),
 		)
 	}
@@ -157,36 +174,38 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 	writeHTMLFooter(w)
 }
 
-func processSlideSet(w http.ResponseWriter, r *http.Request, c *client.Client, zid id.Zid) {
+func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid id.Zid) {
 	ctx := r.Context()
-	o, err := c.GetZettelOrder(ctx, zid)
+	o, err := cfg.c.GetZettelOrder(ctx, zid)
 	if err != nil {
-		writeHTMLZettel(ctx, w, c, zid)
+		writeHTMLZettel(ctx, w, cfg.c, zid)
 		return
 	}
 	writeHTMLHeader(w)
+	m := o.Meta
+	title, subtitle := getTitle(m), m["subtitle"]
 	io.WriteString(w, "<title>TODO: Title Slides</title>\n")
-	if copyright := o.Meta[meta.KeyCopyright]; copyright != "" {
+	if copyright := getCopyright(cfg, m); copyright != "" {
 		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))
 	}
 	io.WriteString(w, "<link rel=\"stylesheet\" type=\"text/css\" media=\"screen, projection, print\" href=\"http://www.w3.org/Talks/Tools/Slidy2/styles/slidy.css\" />\n")
 	io.WriteString(w, "<script src=\"http://www.w3.org/Talks/Tools/Slidy2/scripts/slidy.js\" charset=\"utf-8\" type=\"text/javascript\"></script>\n")
 	writeHTMLBody(w)
 
-	if title := getTitle(o.Meta); title != "" {
+	if title != "" {
 		io.WriteString(w, "<div class=\"slide titlepage\">\n")
 		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", html.EscapeString(title))
-		if subtitle := o.Meta["subtitle"]; subtitle != "" {
+		if subtitle != "" {
 			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", html.EscapeString(subtitle))
 		}
-		if author := o.Meta["author"]; author != "" {
+		if author := getAuthor(cfg, m); author != "" {
 			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
 		}
 		io.WriteString(w, "\n</div>\n")
 	}
 	for _, sl := range o.List {
 		slzid, _ := id.Parse(sl.ID)
-		content, err := c.GetParsedZettel(ctx, slzid, api.EncoderHTML)
+		content, err := cfg.c.GetParsedZettel(ctx, slzid, api.EncoderHTML)
 		if err != nil {
 			continue
 		}
@@ -195,7 +214,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, c *client.Client, z
 			fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
 		}
 		io.WriteString(w, content)
-		io.WriteString(w, "\n</div>\n")
+		io.WriteString(w, "</div>\n")
 	}
 	writeHTMLFooter(w)
 }
@@ -216,7 +235,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 			w,
 			"<li><a href=\"%s\">%s</a></li>\n",
 			jm.ID,
-			html.EscapeString(getTitleZid(jm.Meta, jm.ID)),
+			html.EscapeString(getRealTitleZid(jm.Meta, jm.ID)),
 		)
 	}
 	io.WriteString(w, "</ul>\n")
@@ -236,6 +255,9 @@ func writeHTMLFooter(w http.ResponseWriter) {
 }
 
 func getTitle(m map[string]string) string {
+	if title := m["slidetitle"]; title != "" {
+		return title
+	}
 	return m[meta.KeyTitle]
 }
 
@@ -244,4 +266,23 @@ func getTitleZid(m map[string]string, zid string) string {
 		return title
 	}
 	return zid
+}
+func getRealTitleZid(m map[string]string, zid string) string {
+	if title := m[meta.KeyTitle]; title != "" {
+		return title
+	}
+	return zid
+}
+
+func getAuthor(cfg *slidesConfig, m map[string]string) string {
+	if author := m["author"]; author != "" {
+		return author
+	}
+	return cfg.author
+}
+func getCopyright(cfg *slidesConfig, m map[string]string) string {
+	if copyright := m["copyright"]; copyright != "" {
+		return copyright
+	}
+	return cfg.copyright
 }
