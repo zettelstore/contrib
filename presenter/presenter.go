@@ -25,10 +25,8 @@ import (
 
 	"golang.org/x/term"
 
-	"zettelstore.de/z/api"
-	"zettelstore.de/z/client"
-	"zettelstore.de/z/domain/id"
-	"zettelstore.de/z/domain/meta"
+	"zettelstore.de/c/api"
+	"zettelstore.de/c/client"
 )
 
 func main() {
@@ -103,7 +101,7 @@ func getClient(ctx context.Context, base string, withAuth bool) (*client.Client,
 	return c, nil
 }
 
-const configZettel = id.Zid(9000001000)
+const configZettel = api.ZettelID("00009000001000")
 
 type slidesConfig struct {
 	c            *client.Client
@@ -138,15 +136,15 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/" {
-			processZettel(w, r, cfg.c, id.DefaultHomeZid, cfg.slideSetRole)
+			processZettel(w, r, cfg.c, api.ZidDefaultHome, cfg.slideSetRole)
 			return
 		}
-		if zid, err := id.Parse(path[1:]); err == nil {
+		if zid := api.ZettelID(path[1:]); zid.IsValid() {
 			processZettel(w, r, cfg.c, zid, cfg.slideSetRole)
 			return
 		}
 		if strings.HasPrefix(path, "/sl/") {
-			if zid, err := id.Parse(path[4:]); err == nil {
+			if zid := api.ZettelID(path[4:]); zid.IsValid() {
 				processSlideSet(w, r, cfg, zid)
 				return
 			}
@@ -159,7 +157,7 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 	}
 }
 
-func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid id.Zid, slidesRole string) {
+func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesRole string) {
 	ctx := r.Context()
 	jz, err := c.GetZettelJSON(ctx, zid)
 	if err != nil {
@@ -167,7 +165,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		return
 	}
 	m := jz.Meta
-	role := m[meta.KeyRole]
+	role := m[api.KeyRole]
 	if role == slidesRole && writeSlideTOC(ctx, w, c, zid) {
 		return
 	}
@@ -175,7 +173,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	writeHTMLZettel(ctx, w, c, zid, m)
 }
 
-func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client, zid id.Zid) bool {
+func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID) bool {
 	o, err := c.GetZettelOrder(ctx, zid)
 	if err != nil {
 		return false
@@ -185,7 +183,7 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 	if title != "" {
 		offset++
 	}
-	writeHTMLHeader(w, m[meta.KeyLang])
+	writeHTMLHeader(w, m[api.KeyLang])
 	io.WriteString(w, "<title>TODO: TOC Slide</title>\n")
 	writeHTMLBody(w)
 	if title != "" {
@@ -211,13 +209,13 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 	return true
 }
 
-func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid id.Zid, m map[string]string) {
+func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m map[string]string) {
 	content, err := c.GetParsedZettel(ctx, zid, api.EncoderHTML)
 	if err != nil {
 		fmt.Fprintf(w, "Error retrieving parsed zettel %s: %s\n", zid, err)
 		return
 	}
-	writeHTMLHeader(w, m[meta.KeyLang])
+	writeHTMLHeader(w, m[api.KeyLang])
 	io.WriteString(w, "<title>TODO: Title Zettel</title>\n")
 	writeHTMLBody(w)
 	io.WriteString(w, "<h1>TODO: Title Zettel</h1>\n")
@@ -225,7 +223,7 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 	writeHTMLFooter(w)
 }
 
-func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid id.Zid) {
+func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID) {
 	ctx := r.Context()
 	o, err := cfg.c.GetZettelOrder(ctx, zid)
 	if err != nil {
@@ -233,7 +231,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		return
 	}
 	m := o.Meta
-	writeHTMLHeader(w, m[meta.KeyLang])
+	writeHTMLHeader(w, m[api.KeyLang])
 	title, subtitle := getTitle(m), m["subtitle"]
 	io.WriteString(w, "<title>TODO: Title Slides</title>\n")
 	if copyright := getCopyright(cfg, m); copyright != "" {
@@ -254,8 +252,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		io.WriteString(w, "\n</div>\n")
 	}
 	for _, sl := range o.List {
-		slzid, _ := id.Parse(sl.ID)
-		content, err := cfg.c.GetParsedZettel(ctx, slzid, api.EncoderHTML)
+		content, err := cfg.c.GetParsedZettel(ctx, sl.ID, api.EncoderHTML)
 		if err != nil {
 			continue
 		}
@@ -315,20 +312,20 @@ func getTitle(m map[string]string) string {
 	if title := m["slidetitle"]; title != "" {
 		return title
 	}
-	return m[meta.KeyTitle]
+	return m[api.KeyTitle]
 }
 
-func getTitleZid(m map[string]string, zid string) string {
+func getTitleZid(m map[string]string, zid api.ZettelID) string {
 	if title := getTitle(m); title != "" {
 		return title
 	}
-	return zid
+	return string(zid)
 }
-func getRealTitleZid(m map[string]string, zid string) string {
-	if title := m[meta.KeyTitle]; title != "" {
+func getRealTitleZid(m map[string]string, zid api.ZettelID) string {
+	if title := m[api.KeyTitle]; title != "" {
 		return title
 	}
-	return zid
+	return string(zid)
 }
 
 func getAuthor(cfg *slidesConfig, m map[string]string) string {
