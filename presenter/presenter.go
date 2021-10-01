@@ -181,13 +181,18 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 	if title != "" {
 		offset++
 	}
-	writeHTMLHeader(w, m[api.KeyLang])
-	io.WriteString(w, "<title>TODO: TOC Slide</title>\n")
+	lang := m[api.KeyLang]
+	encTitles, err := c.EncodeInlines(ctx, title, []string{subtitle}, lang, false)
+	if err != nil {
+		return false
+	}
+	writeHTMLHeader(w, lang)
+	fmt.Fprintf(w, "<title>%s</title>\n", encTitles.FirstText)
 	writeHTMLBody(w)
 	if title != "" {
-		fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
+		fmt.Fprintf(w, "<h1>%s</h1>\n", encTitles.FirstHTML)
 		if subtitle != "" {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", html.EscapeString(subtitle))
+			fmt.Fprintf(w, "<h2>%s</h2>\n", encTitles.OtherHTML[0])
 		}
 	}
 	// TODO: io.WriteString(w, "<p>TODO: Initial content</p>\n")
@@ -213,10 +218,17 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 		fmt.Fprintf(w, "Error retrieving parsed zettel %s: %s\n", zid, err)
 		return
 	}
-	writeHTMLHeader(w, m[api.KeyLang])
-	io.WriteString(w, "<title>TODO: Title Zettel</title>\n")
+	title := getTitleZid(m, zid)
+	lang := m[api.KeyLang]
+	encTitles, err := c.EncodeInlines(ctx, title, nil, lang, false)
+	if err != nil {
+		fmt.Fprintf(w, "Error retrieving encoded title %q: %s\n", title, err)
+		return
+	}
+	writeHTMLHeader(w, lang)
+	fmt.Fprintf(w, "<title>%s</title>\n", encTitles.FirstText)
 	writeHTMLBody(w)
-	io.WriteString(w, "<h1>TODO: Title Zettel</h1>\n")
+	fmt.Fprintf(w, "<h1>%s</h1>\n", encTitles.FirstHTML)
 	fmt.Fprint(w, content)
 	writeHTMLFooter(w)
 }
@@ -229,9 +241,15 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		return
 	}
 	m := o.Meta
-	writeHTMLHeader(w, m[api.KeyLang])
+	lang := m[api.KeyLang]
 	title, subtitle := getTitle(m), m["subtitle"]
-	io.WriteString(w, "<title>TODO: Title Slides</title>\n")
+	encTitles, err := cfg.c.EncodeInlines(ctx, title, []string{subtitle}, lang, false)
+	if err != nil {
+		fmt.Fprintf(w, "Error retrieving encoded title %q: %s\n", title, err)
+		return
+	}
+	writeHTMLHeader(w, lang)
+	fmt.Fprintf(w, "<title>%s</title>\n", encTitles.FirstText)
 	if copyright := getCopyright(cfg, m); copyright != "" {
 		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))
 	}
@@ -240,9 +258,9 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 
 	if title != "" {
 		io.WriteString(w, "<div class=\"slide titlepage\">\n")
-		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", html.EscapeString(title))
+		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", encTitles.FirstHTML)
 		if subtitle != "" {
-			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", html.EscapeString(subtitle))
+			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", encTitles.OtherHTML[0])
 		}
 		if author := getAuthor(cfg, m); author != "" {
 			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
@@ -266,9 +284,19 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 }
 
 func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
-	zl, err := c.ListZettelJSON(r.Context(), r.URL.Query())
+	ctx := r.Context()
+	zl, err := c.ListZettelJSON(ctx, r.URL.Query())
 	if err != nil {
 		fmt.Fprintf(w, "Error retrieving zettel list %s: %s\n", r.URL.Query(), err)
+		return
+	}
+	titles := make([]string, len(zl))
+	for i, jm := range zl {
+		titles[i] = getRealTitleZid(jm.Meta, jm.ID)
+	}
+	encTitles, err := c.EncodeInlines(ctx, "", titles, "", true)
+	if err != nil {
+		fmt.Fprintf(w, "Error retrieving encoded titles: %s\n", err)
 		return
 	}
 	writeHTMLHeader(w, "")
@@ -276,12 +304,12 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	writeHTMLBody(w)
 	io.WriteString(w, "<h1>TODO: Title List</h1>\n")
 	io.WriteString(w, "<ul>\n")
-	for _, jm := range zl {
+	for i, jm := range zl {
 		fmt.Fprintf(
 			w,
 			"<li><a href=\"%s\">%s</a></li>\n",
 			jm.ID,
-			html.EscapeString(getRealTitleZid(jm.Meta, jm.ID)),
+			encTitles.OtherHTML[i],
 		)
 	}
 	io.WriteString(w, "</ul>\n")
