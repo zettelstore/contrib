@@ -3,5 +3,5 @@ golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c h1:F1jZWGFhYfh0Ci55sIpILtKKK
 golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b h1:9zKuko04nR4gjZ4+DNjHqRlAJqbJETHwiNKDqTfOjfE=
 golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
-zettelstore.de/c v0.0.0-20210930173155-fe273cc5d52e h1:J+OhoF1XW/kFskul1gGZRkH3qI2Ml9GU0CHzTAYLKaM=
-zettelstore.de/c v0.0.0-20210930173155-fe273cc5d52e/go.mod h1:Hx/qzHCaQ8zzXEzBglBj/2aGkQpBQG81/4XztCIGJ84=
+zettelstore.de/c v0.0.0-20211001112336-981f7d2368fe h1:Bc/xKwhSAOkhHGtDXg+hPvZ9fukOl2tkikuqNmmS2cQ=
+zettelstore.de/c v0.0.0-20211001112336-981f7d2368fe/go.mod h1:Hx/qzHCaQ8zzXEzBglBj/2aGkQpBQG81/4XztCIGJ84=

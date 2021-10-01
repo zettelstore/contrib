@@ -115,11 +115,10 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 		c:            c,
 		slideSetRole: "slideset",
 	}
-	jz, err := c.GetZettelJSON(ctx, configZettel)
+	m, err := c.GetMeta(ctx, configZettel)
 	if err != nil {
 		return result, nil // TODO: check 404 vs other codes
 	}
-	m := jz.Meta
 	if ssr, ok := m["slideset-role"]; ok {
 		result.slideSetRole = ssr
 	}
@@ -159,12 +158,11 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 
 func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesRole string) {
 	ctx := r.Context()
-	jz, err := c.GetZettelJSON(ctx, zid)
+	m, err := c.GetMeta(ctx, zid)
 	if err != nil {
 		fmt.Fprintf(w, "Error retrieving zettel %s: %s\n", zid, err)
 		return
 	}
-	m := jz.Meta
 	role := m[api.KeyRole]
 	if role == slidesRole && writeSlideTOC(ctx, w, c, zid) {
 		return
