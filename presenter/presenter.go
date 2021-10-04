@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"html"
@@ -117,7 +118,10 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	}
 	m, err := c.GetMeta(ctx, configZettel)
 	if err != nil {
-		return result, nil // TODO: check 404 vs other codes
+		if errors.Is(err, client.ErrNotFound) {
+			return result, nil
+		}
+		panic(err)
 	}
 	if ssr, ok := m["slideset-role"]; ok {
 		result.slideSetRole = ssr
@@ -160,7 +164,11 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	ctx := r.Context()
 	m, err := c.GetMeta(ctx, zid)
 	if err != nil {
-		fmt.Fprintf(w, "Error retrieving zettel %s: %s\n", zid, err)
+		if errors.Is(err, client.ErrNotFound) {
+			http.Error(w, fmt.Sprintf("Zettel %s not found", zid), http.StatusNotFound)
+		} else {
+			http.Error(w, fmt.Sprintf("Error retrieving zettel %s: %s", zid, err), http.StatusBadRequest)
+		}
 		return
 	}
 	role := m[api.KeyRole]
@@ -195,7 +203,6 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 			fmt.Fprintf(w, "<h2>%s</h2>\n", encTitles.OtherHTML[0])
 		}
 	}
-	// TODO: io.WriteString(w, "<p>TODO: Initial content</p>\n")
 	fmt.Fprintf(w, "<p><a href=\"/sl/%s\">Start</a></p>\n", zid)
 	io.WriteString(w, "<ol>\n")
 	for i, sl := range o.List {
@@ -215,14 +222,18 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m map[string]string) {
 	content, err := c.GetParsedZettel(ctx, zid, api.EncoderHTML)
 	if err != nil {
-		fmt.Fprintf(w, "Error retrieving parsed zettel %s: %s\n", zid, err)
+		if errors.Is(err, client.ErrNotFound) {
+			http.Error(w, fmt.Sprintf("Zettel %s not found", zid), http.StatusNotFound)
+		} else {
+			http.Error(w, fmt.Sprintf("Error retrieving parsed zettel %s: %s", zid, err), http.StatusBadRequest)
+		}
 		return
 	}
 	title := getTitleZid(m, zid)
 	lang := m[api.KeyLang]
 	encTitles, err := c.EncodeInlines(ctx, title, nil, lang, false)
 	if err != nil {
-		fmt.Fprintf(w, "Error retrieving encoded title %q: %s\n", title, err)
+		http.Error(w, fmt.Sprintf("Error retrieving encoded title %q: %s\n", title, err), http.StatusBadRequest)
 		return
 	}
 	writeHTMLHeader(w, lang)
@@ -237,7 +248,11 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	ctx := r.Context()
 	o, err := cfg.c.GetZettelOrder(ctx, zid)
 	if err != nil {
-		writeHTMLZettel(ctx, w, cfg.c, zid, map[string]string{})
+		if errors.Is(err, client.ErrNotFound) {
+			http.Error(w, fmt.Sprintf("Zettel %s not found", zid), http.StatusNotFound)
+		} else {
+			writeHTMLZettel(ctx, w, cfg.c, zid, map[string]string{})
+		}
 		return
 	}
 	m := o.Meta
@@ -245,7 +260,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	title, subtitle := getTitle(m), m["subtitle"]
 	encTitles, err := cfg.c.EncodeInlines(ctx, title, []string{subtitle}, lang, false)
 	if err != nil {
-		fmt.Fprintf(w, "Error retrieving encoded title %q: %s\n", title, err)
+		http.Error(w, fmt.Sprintf("Error retrieving encoded title %q: %s\n", title, err), http.StatusBadRequest)
 		return
 	}
 	writeHTMLHeader(w, lang)
@@ -285,9 +300,9 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 
 func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	ctx := r.Context()
-	zl, err := c.ListZettelJSON(ctx, r.URL.Query())
+	query, zl, err := c.ListZettelJSON(ctx, r.URL.Query())
 	if err != nil {
-		fmt.Fprintf(w, "Error retrieving zettel list %s: %s\n", r.URL.Query(), err)
+		http.Error(w, fmt.Sprintf("Error retrieving zettel list %s: %s\n", r.URL.Query(), err), http.StatusBadRequest)
 		return
 	}
 	titles := make([]string, len(zl))
@@ -296,13 +311,21 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	}
 	encTitles, err := c.EncodeInlines(ctx, "", titles, "", true)
 	if err != nil {
-		fmt.Fprintf(w, "Error retrieving encoded titles: %s\n", err)
+		http.Error(w, fmt.Sprintf("Error retrieving encoded titles: %s\n", err), http.StatusBadRequest)
 		return
 	}
+	var title string
+	if query == "" {
+		title = "All zettel"
+		query = title
+	} else {
+		title = "Selected zettel"
+		query = "Search: " + query
+	}
 	writeHTMLHeader(w, "")
-	io.WriteString(w, "<title>TODO: Title List</title>\n")
+	fmt.Fprintf(w, "<title>%s</title>\n", title)
 	writeHTMLBody(w)
-	io.WriteString(w, "<h1>TODO: Title List</h1>\n")
+	fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(query))
 	io.WriteString(w, "<ul>\n")
 	for i, jm := range zl {
 		fmt.Fprintf(
