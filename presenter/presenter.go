@@ -28,6 +28,7 @@ import (
 
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/client"
+	"zettelstore.de/c/zjson"
 )
 
 func main() {
@@ -222,7 +223,7 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 }
 
 func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m map[string]string) {
-	content, err := c.GetParsedZettel(ctx, zid, api.EncoderHTML)
+	content, err := c.GetEvaluatedZettel(ctx, zid, api.EncoderHTML)
 	if err != nil {
 		var cerr *client.Error
 		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
@@ -244,6 +245,14 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 	writeHTMLBody(w)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", encTitles.FirstHTML)
 	fmt.Fprintf(w, "%s\n", content)
+
+	zj, err := c.GetEvaluatedZJSON(ctx, zid, api.PartContent)
+	if err != nil {
+		panic(err)
+	}
+	he := newHTML(w, 2)
+	zjson.WalkBlock(he, zj.(zjsonArray), 0)
+
 	writeHTMLFooter(w)
 }
 
@@ -296,6 +305,18 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 			fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
 		}
 		io.WriteString(w, string(content))
+		io.WriteString(w, "</div>\n")
+
+		zc, err := cfg.c.GetEvaluatedZJSON(ctx, sl.ID, api.PartContent)
+		if err != nil {
+			panic(err) // continue
+		}
+		io.WriteString(w, "<div class=\"slide\">\n")
+		if title := getTitle(sl.Meta); title != "" {
+			fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
+		}
+		he := newHTML(w, 2)
+		zjson.WalkBlock(he, zc.(zjsonArray), 0)
 		io.WriteString(w, "</div>\n")
 	}
 	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)
