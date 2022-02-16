@@ -3,8 +3,8 @@ module zettelstore.de/contrib/presenter
 go 1.17
 
 require (
-	golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b
-	zettelstore.de/c v0.0.0-20211004152611-8aa04241de1a
+	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
+	zettelstore.de/c v0.0.0-20220216121929-7b42a151e581
 )
 
 require golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c // indirect

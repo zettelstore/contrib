@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2021 Detlef Stern
+// Copyright (c) 2021-2022 Detlef Stern
 //
 // This file is part of zettelstore slides application.
 //
@@ -118,7 +118,8 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	}
 	m, err := c.GetMeta(ctx, configZettel)
 	if err != nil {
-		if errors.Is(err, client.ErrNotFound) {
+		var cerr *client.Error
+		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
 			return result, nil
 		}
 		panic(err)
@@ -164,7 +165,8 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	ctx := r.Context()
 	m, err := c.GetMeta(ctx, zid)
 	if err != nil {
-		if errors.Is(err, client.ErrNotFound) {
+		var cerr *client.Error
+		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
 			http.Error(w, fmt.Sprintf("Zettel %s not found", zid), http.StatusNotFound)
 		} else {
 			http.Error(w, fmt.Sprintf("Error retrieving zettel %s: %s", zid, err), http.StatusBadRequest)
@@ -222,7 +224,8 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m map[string]string) {
 	content, err := c.GetParsedZettel(ctx, zid, api.EncoderHTML)
 	if err != nil {
-		if errors.Is(err, client.ErrNotFound) {
+		var cerr *client.Error
+		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
 			http.Error(w, fmt.Sprintf("Zettel %s not found", zid), http.StatusNotFound)
 		} else {
 			http.Error(w, fmt.Sprintf("Error retrieving parsed zettel %s: %s", zid, err), http.StatusBadRequest)
@@ -240,7 +243,7 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 	fmt.Fprintf(w, "<title>%s</title>\n", encTitles.FirstText)
 	writeHTMLBody(w)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", encTitles.FirstHTML)
-	fmt.Fprint(w, content)
+	fmt.Fprintf(w, "%s\n", content)
 	writeHTMLFooter(w)
 }
 
@@ -248,7 +251,8 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	ctx := r.Context()
 	o, err := cfg.c.GetZettelOrder(ctx, zid)
 	if err != nil {
-		if errors.Is(err, client.ErrNotFound) {
+		var cerr *client.Error
+		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
 			http.Error(w, fmt.Sprintf("Zettel %s not found", zid), http.StatusNotFound)
 		} else {
 			writeHTMLZettel(ctx, w, cfg.c, zid, map[string]string{})
@@ -291,7 +295,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		if title := getTitle(sl.Meta); title != "" {
 			fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
 		}
-		io.WriteString(w, content)
+		io.WriteString(w, string(content))
 		io.WriteString(w, "</div>\n")
 	}
 	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)

@@ -1641,7 +1641,7 @@ var w3c_slidy = {
       }
     }
     else
-      bgColor == "transparent";
+      bgColor = "transparent";
 
     if (bgColor == "transparent" ||
         bgColor.indexOf("rgba") >= 0 ||

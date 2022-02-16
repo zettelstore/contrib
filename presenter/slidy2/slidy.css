@@ -41,7 +41,6 @@ div.initial_prompt {
   z-index: 1000;
   bottom: 1.2em;
   width: 100%;
-  background-color: rgb(200,200,200);
   opacity: 0.35;
   background-color: rgb(200,200,200, 0.35);
   cursor: pointer;
