@@ -154,12 +154,31 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 				return
 			}
 		}
+		if strings.HasPrefix(path, "/z/") {
+			if zid := api.ZettelID(path[3:]); zid.IsValid() {
+				processContent(w, r, cfg.c, zid)
+				return
+			}
+		}
 		if len(path) == 2 && ' ' < path[1] && path[1] <= 'z' {
 			processList(w, r, cfg.c)
 			return
 		}
 		http.Error(w, fmt.Sprintf("Unhandled request %q", r.URL), http.StatusNotFound)
 	}
+}
+
+func processContent(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID) {
+	content, err := c.GetZettel(r.Context(), zid, api.PartContent)
+	if err != nil {
+		var cerr *client.Error
+		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
+			http.Error(w, fmt.Sprintf("Content %s not found", zid), http.StatusNotFound)
+		} else {
+			http.Error(w, fmt.Sprintf("Error retrieving content %s: %s", zid, err), http.StatusBadRequest)
+		}
+	}
+	w.Write(content)
 }
 
 func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesRole string) {
@@ -223,7 +242,7 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 }
 
 func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m map[string]string) {
-	content, err := c.GetEvaluatedZettel(ctx, zid, api.EncoderHTML)
+	zjZettel, err := c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
 	if err != nil {
 		var cerr *client.Error
 		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
@@ -244,14 +263,11 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 	fmt.Fprintf(w, "<title>%s</title>\n", encTitles.FirstText)
 	writeHTMLBody(w)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", encTitles.FirstHTML)
-	fmt.Fprintf(w, "%s\n", content)
 
-	zj, err := c.GetEvaluatedZJSON(ctx, zid, api.PartContent)
-	if err != nil {
-		panic(err)
-	}
-	he := newHTML(w, 2)
-	zjson.WalkBlock(he, zj.(zjsonArray), 0)
+	zjContent := zjZettel.(zjson.Object)["content"]
+	he := newHTML(w, lang, 1, "")
+	zjson.WalkBlock(he, zjContent.(zjson.Array), 0)
+	he.visitEndnotes()
 
 	writeHTMLFooter(w)
 }
@@ -281,7 +297,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	if copyright := getCopyright(cfg, m); copyright != "" {
 		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))
 	}
-	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", slidy2css)
+	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s\n%s</style>\n", slidy2css, mycss)
 	writeHTMLBody(w)
 
 	if title != "" {
@@ -295,8 +311,8 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		}
 		io.WriteString(w, "\n</div>\n")
 	}
-	for _, sl := range o.List {
-		content, err := cfg.c.GetParsedZettel(ctx, sl.ID, api.EncoderHTML)
+	for slideNo, sl := range o.List {
+		zjContent, err := cfg.c.GetEvaluatedZJSON(ctx, sl.ID, api.PartContent)
 		if err != nil {
 			continue
 		}
@@ -304,19 +320,11 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		if title := getTitle(sl.Meta); title != "" {
 			fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
 		}
-		io.WriteString(w, string(content))
-		io.WriteString(w, "</div>\n")
 
-		zc, err := cfg.c.GetEvaluatedZJSON(ctx, sl.ID, api.PartContent)
-		if err != nil {
-			panic(err) // continue
-		}
-		io.WriteString(w, "<div class=\"slide\">\n")
-		if title := getTitle(sl.Meta); title != "" {
-			fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(title))
-		}
-		he := newHTML(w, 2)
-		zjson.WalkBlock(he, zc.(zjsonArray), 0)
+		// TODO: try to get lang from slide if possible, fallback to slideset
+		he := newHTML(w, lang, 1, fmt.Sprintf("%d:", slideNo))
+		zjson.WalkBlock(he, zjContent.(zjson.Array), 0)
+		he.visitEndnotes()
 		io.WriteString(w, "</div>\n")
 	}
 	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)
@@ -372,6 +380,7 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 	} else {
 		fmt.Fprintf(w, "<html lang=\"%s\">\n", lang)
 	}
+	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", mycss)
 	io.WriteString(w, "<head>\n")
 }
 
@@ -420,3 +429,11 @@ var slidy2css string
 
 //go:embed slidy2/slidy.js
 var slidy2js string
+
+var mycss = `/* Additional CSS to make it a little more beautiful */
+.zs-left { text-align: left }
+.zs-center { text-align: center }
+.zs-right { text-align: right }
+.zs-endnotes { padding-top: .5rem; border-top: 1px solid }
+.zs-broken { text-decoration: line-through }
+`
