@@ -380,8 +380,8 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 	} else {
 		fmt.Fprintf(w, "<html lang=\"%s\">\n", lang)
 	}
-	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", mycss)
 	io.WriteString(w, "<head>\n")
+	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", mycss)
 }
 
 func writeHTMLBody(w http.ResponseWriter) {
