@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -21,12 +22,18 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
-func newHTML(w io.Writer, lang string, headingOffset int, unique string) *htmlV {
+func htmlNew(w io.Writer, headingOffset int, unique string) *htmlV {
 	return &htmlV{
 		w:             w,
 		headingOffset: headingOffset,
 		unique:        unique,
 	}
+}
+
+func htmlEncodeInline(in zjson.Array) string {
+	var buf bytes.Buffer
+	zjson.WalkInline(&htmlV{w: &buf}, in, 0)
+	return buf.String()
 }
 
 type footnodeInfo struct {
@@ -69,19 +76,17 @@ func (v *htmlV) visitEndnotes() {
 	v.WriteString("</ol>\n")
 }
 
-func (v *htmlV) Block(a zjson.Array, pos int) zjson.EndFunc {
-	if pos > 0 {
-		v.WriteEOL()
-	}
-	return nil
-}
-func (v *htmlV) Inline(a zjson.Array, pos int) zjson.EndFunc { return nil }
-func (v *htmlV) Item(a zjson.Array, pos int) zjson.EndFunc {
+func (v *htmlV) BlockArray(a zjson.Array, pos int) zjson.CloseFunc  { return nil }
+func (v *htmlV) InlineArray(a zjson.Array, pos int) zjson.CloseFunc { return nil }
+func (v *htmlV) ItemArray(a zjson.Array, pos int) zjson.CloseFunc {
 	v.WriteString("<li>")
 	return func() { v.WriteString("</li>\n") }
 }
 
-func (v *htmlV) Object(t string, obj zjson.Object, pos int) (bool, zjson.EndFunc) {
+func (v *htmlV) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
+	if pos > 0 {
+		v.WriteEOL()
+	}
 	switch t {
 	case zjson.TypeParagraph:
 		v.WriteString("<p>")
@@ -109,6 +114,224 @@ func (v *htmlV) Object(t string, obj zjson.Object, pos int) (bool, zjson.EndFunc
 		return v.visitVerbatimCode(obj)
 	case zjson.TypeBLOB:
 		return v.visitBLOB(obj)
+	}
+	fmt.Fprintln(v, obj)
+	log.Printf("B%T %v\n", obj, obj)
+	return true, nil
+}
+
+func (v *htmlV) Unexpected(val zjson.Value, pos int, exp string) {
+	log.Printf("?%v %d %T %v\n", exp, pos, val, val)
+}
+
+func (v *htmlV) visitInline(val zjson.Value) {
+	if a, ok := val.(zjson.Array); ok {
+		for i, elem := range a {
+			zjson.WalkInlineObject(v, elem, i)
+		}
+	}
+}
+
+func (v *htmlV) visitHeading(obj zjson.Object) (bool, zjson.CloseFunc) {
+	level, err := strconv.Atoi(zjson.GetNumber(obj))
+	if err != nil {
+		return true, nil
+	}
+	level += v.headingOffset
+	fmt.Fprintf(v, "<h%v>", level)
+	return true, func() { fmt.Fprintf(v, "</h%v>", level) }
+}
+
+func (v *htmlV) visitList(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
+	fmt.Fprintf(v, "<%s>\n", tag)
+	return true, func() {
+		fmt.Fprintf(v, "</%s>\n", tag)
+	}
+}
+
+func (v *htmlV) visitDescription(obj zjson.Object) (bool, zjson.CloseFunc) {
+	descrs := zjson.GetArray(obj, zjson.NameDescription)
+	v.WriteString("<dl>\n")
+	for _, elem := range descrs {
+		descr := zjson.MakeArray(elem)
+		if len(descr) == 0 {
+			continue
+		}
+		v.WriteString("<dt>")
+		v.visitInline(descr[0])
+		v.WriteString("</dt>\n")
+		if len(descr) == 1 {
+			continue
+		}
+		for _, ddv := range descr[1:] {
+			dd := zjson.MakeArray(ddv)
+			if len(dd) == 0 {
+				continue
+			}
+			v.WriteString("<dd>")
+			zjson.WalkBlock(v, dd, 0)
+			v.WriteString("</dd>\n")
+		}
+	}
+	v.WriteString("</dl>")
+	return false, nil
+}
+
+func (v *htmlV) visitQuotation(obj zjson.Object) (bool, zjson.CloseFunc) {
+	v.WriteString("<blockquote>")
+	inPara := false
+	for i, item := range zjson.GetArray(obj, zjson.NameList) {
+		bl, ok := item.(zjson.Array)
+		if !ok {
+			v.Unexpected(item, i, "Quotation array")
+			continue
+		}
+		if p := getParagraph(bl); p != nil {
+			if inPara {
+				v.WriteEOL()
+			} else {
+				v.WriteString("<p>")
+				inPara = true
+			}
+			zjson.WalkInline(v, p, 0)
+		} else {
+			if inPara {
+				v.WriteString("</p>")
+				inPara = false
+			}
+			zjson.WalkBlock(v, bl, 0)
+		}
+	}
+	if inPara {
+		v.WriteString("</p>")
+	}
+	v.WriteString("</blockquote>")
+	return false, nil
+}
+func getParagraph(a zjson.Array) zjson.Array {
+	if len(a) != 1 {
+		return nil
+	}
+	if o := zjson.MakeObject(a[0]); o != nil {
+		if zjson.GetString(o, zjson.NameType) == zjson.TypeParagraph {
+			return zjson.GetArray(o, zjson.NameInline)
+		}
+	}
+	return nil
+}
+
+func (v *htmlV) visitTable(obj zjson.Object) (bool, zjson.CloseFunc) {
+	tdata := zjson.GetArray(obj, zjson.NameTable)
+	if len(tdata) != 2 {
+		return false, nil
+	}
+	hArray := zjson.MakeArray(tdata[0])
+	bArray := zjson.MakeArray(tdata[1])
+	v.WriteString("<table>\n")
+	if len(hArray) > 0 {
+		v.WriteString("<thead>\n")
+		v.visitRow(hArray, "th")
+		v.WriteString("</thead>\n")
+	}
+	if len(bArray) > 0 {
+		v.WriteString("<tbody>\n")
+		for _, row := range bArray {
+			if rArray := zjson.MakeArray(row); rArray != nil {
+				v.visitRow(rArray, "td")
+			}
+		}
+		v.WriteString("</tbody>\n")
+	}
+	v.WriteString("</table>")
+	return false, nil
+}
+func (v *htmlV) visitRow(row zjson.Array, tag string) {
+	v.WriteString("<tr>")
+	for _, cell := range row {
+		if cArray := zjson.MakeArray(cell); len(cArray) == 2 {
+			switch a := zjson.MakeString(cArray[0]); a {
+			case zjson.AlignLeft:
+				fmt.Fprintf(v, `<%s class="zp-left">`, tag)
+			case zjson.AlignCenter:
+				fmt.Fprintf(v, `<%s class="zp-center">`, tag)
+			case zjson.AlignRight:
+				fmt.Fprintf(v, `<%s class="zp-right">`, tag)
+			default:
+				fmt.Fprintf(v, "<%s>", tag)
+			}
+			v.visitInline(cArray[1])
+			fmt.Fprintf(v, "</%s>", tag)
+		}
+	}
+	v.WriteString("</tr>\n")
+}
+func (v *htmlV) visitRegion(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
+	v.Write([]byte{'<'})
+	v.WriteString(tag)
+	v.visitAttributes(zjson.GetAttributes(obj))
+	v.WriteString(">\n")
+	if blocks := zjson.GetArray(obj, zjson.NameBlock); blocks != nil {
+		zjson.WalkBlock(v, blocks, 0)
+	}
+	if cite := zjson.GetArray(obj, zjson.NameInline); cite != nil {
+		v.WriteString("\n<cite>")
+		zjson.WalkInline(v, cite, 0)
+		v.WriteString("</cite>")
+	}
+	v.WriteString("\n</")
+	v.WriteString(tag)
+	v.Write([]byte{'>'})
+	return false, nil
+}
+
+func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
+	saveVisible := v.visibleSpace
+	a := zjson.GetAttributes(obj)
+	if a.HasDefault() {
+		v.visibleSpace = true
+		a = a.Clone().RemoveDefault()
+	}
+	v.WriteString("<pre><code")
+	v.visitAttributes(a)
+	v.Write([]byte{'>'})
+	v.WriteEscaped(zjson.GetString(obj, zjson.NameString))
+	v.WriteString("</code></pre>")
+	v.visibleSpace = saveVisible
+	return false, nil
+}
+
+func (v *htmlV) visitBLOB(obj zjson.Object) (bool, zjson.CloseFunc) {
+	switch s := zjson.GetString(obj, zjson.NameString); s {
+	case "":
+	case api.ValueSyntaxSVG:
+		v.writeSVG(obj)
+	default:
+		v.writeDataImage(obj, s, zjson.GetString(obj, zjson.NameString2))
+	}
+	return false, nil
+}
+func (v *htmlV) writeSVG(obj zjson.Object) {
+	if svg := zjson.GetString(obj, zjson.NameString3); svg != "" {
+		// TODO: add inline text / title as description
+		v.WriteString(svg)
+	}
+}
+func (v *htmlV) writeDataImage(obj zjson.Object, syntax, title string) {
+	if b := zjson.GetString(obj, zjson.NameBinary); b != "" {
+		v.WriteString(`<img src="data:image/`)
+		v.WriteString(syntax)
+		v.WriteString(";base64,")
+		v.WriteString(b)
+		if title != "" {
+			v.WriteString(`" title="`)
+			v.WriteAttribute(title)
+		}
+		v.WriteString(`">`)
+	}
+}
+
+func (v *htmlV) InlineObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
+	switch t {
 	case zjson.TypeText:
 		v.WriteString(zjson.GetString(obj, zjson.NameString))
 		return false, nil
@@ -162,221 +385,11 @@ func (v *htmlV) Object(t string, obj zjson.Object, pos int) (bool, zjson.EndFunc
 		return v.visitHTML(obj)
 	}
 	fmt.Fprintln(v, obj)
-	log.Printf("%T %v\n", obj, obj)
+	log.Printf("I%T %v\n", obj, obj)
 	return true, nil
 }
 
-func (v *htmlV) NoValue(val zjson.Value, pos int)   { log.Printf("?NOV %d %T %v\n", pos, val, val) }
-func (v *htmlV) NoArray(val zjson.Value, pos int)   { log.Println("?NOA", pos, val) }
-func (v *htmlV) NoObject(obj zjson.Object, pos int) { log.Println("?NOO", pos, obj) }
-
-func (v *htmlV) visitInline(val zjson.Value) {
-	if a, ok := val.(zjson.Array); ok {
-		for i, elem := range a {
-			zjson.WalkObject(v, elem, i)
-		}
-	}
-}
-
-func (v *htmlV) visitHeading(obj zjson.Object) (bool, zjson.EndFunc) {
-	level, err := strconv.Atoi(zjson.GetNumber(obj))
-	if err != nil {
-		return true, nil
-	}
-	level += v.headingOffset
-	fmt.Fprintf(v, "<h%v>", level)
-	return true, func() { fmt.Fprintf(v, "</h%v>", level) }
-}
-
-func (v *htmlV) visitList(obj zjson.Object, tag string) (bool, zjson.EndFunc) {
-	fmt.Fprintf(v, "<%s>\n", tag)
-	return true, func() {
-		fmt.Fprintf(v, "</%s>\n", tag)
-	}
-}
-
-func (v *htmlV) visitDescription(obj zjson.Object) (bool, zjson.EndFunc) {
-	descrs := zjson.GetArray(obj, zjson.NameDescription)
-	v.WriteString("<dl>\n")
-	for _, elem := range descrs {
-		descr := zjson.MakeArray(elem)
-		if len(descr) == 0 {
-			continue
-		}
-		v.WriteString("<dt>")
-		v.visitInline(descr[0])
-		v.WriteString("</dt>\n")
-		if len(descr) == 1 {
-			continue
-		}
-		for _, ddv := range descr[1:] {
-			dd := zjson.MakeArray(ddv)
-			if len(dd) == 0 {
-				continue
-			}
-			v.WriteString("<dd>")
-			zjson.WalkBlock(v, dd, 0)
-			v.WriteString("</dd>\n")
-		}
-	}
-	v.WriteString("</dl>")
-	return false, nil
-}
-
-func (v *htmlV) visitQuotation(obj zjson.Object) (bool, zjson.EndFunc) {
-	v.WriteString("<blockquote>")
-	inPara := false
-	for i, item := range zjson.GetArray(obj, zjson.NameList) {
-		bl, ok := item.(zjson.Array)
-		if !ok {
-			v.NoArray(item, i)
-			continue
-		}
-		if p := getParagraph(bl); p != nil {
-			if inPara {
-				v.WriteEOL()
-			} else {
-				v.WriteString("<p>")
-				inPara = true
-			}
-			zjson.WalkInline(v, p, 0)
-		} else {
-			if inPara {
-				v.WriteString("</p>")
-				inPara = false
-			}
-			zjson.WalkBlock(v, bl, 0)
-		}
-	}
-	if inPara {
-		v.WriteString("</p>")
-	}
-	v.WriteString("</blockquote>")
-	return false, nil
-}
-func getParagraph(a zjson.Array) zjson.Array {
-	if len(a) != 1 {
-		return nil
-	}
-	if o := zjson.MakeObject(a[0]); o != nil {
-		if zjson.GetString(o, zjson.NameType) == zjson.TypeParagraph {
-			return zjson.GetArray(o, zjson.NameInline)
-		}
-	}
-	return nil
-}
-
-func (v *htmlV) visitTable(obj zjson.Object) (bool, zjson.EndFunc) {
-	tdata := zjson.GetArray(obj, zjson.NameTable)
-	if len(tdata) != 2 {
-		return false, nil
-	}
-	hArray := zjson.MakeArray(tdata[0])
-	bArray := zjson.MakeArray(tdata[1])
-	v.WriteString("<table>\n")
-	if len(hArray) > 0 {
-		v.WriteString("<thead>\n")
-		v.visitRow(hArray, "th")
-		v.WriteString("</thead>\n")
-	}
-	if len(bArray) > 0 {
-		v.WriteString("<tbody>\n")
-		for _, row := range bArray {
-			if rArray := zjson.MakeArray(row); rArray != nil {
-				v.visitRow(rArray, "td")
-			}
-		}
-		v.WriteString("</tbody>\n")
-	}
-	v.WriteString("</table>")
-	return false, nil
-}
-func (v *htmlV) visitRow(row zjson.Array, tag string) {
-	v.WriteString("<tr>")
-	for _, cell := range row {
-		if cArray := zjson.MakeArray(cell); len(cArray) == 2 {
-			switch a := zjson.MakeString(cArray[0]); a {
-			case zjson.AlignLeft:
-				fmt.Fprintf(v, `<%s class="zp-left">`, tag)
-			case zjson.AlignCenter:
-				fmt.Fprintf(v, `<%s class="zp-center">`, tag)
-			case zjson.AlignRight:
-				fmt.Fprintf(v, `<%s class="zp-right">`, tag)
-			default:
-				fmt.Fprintf(v, "<%s>", tag)
-			}
-			v.visitInline(cArray[1])
-			fmt.Fprintf(v, "</%s>", tag)
-		}
-	}
-	v.WriteString("</tr>\n")
-}
-func (v *htmlV) visitRegion(obj zjson.Object, tag string) (bool, zjson.EndFunc) {
-	v.Write([]byte{'<'})
-	v.WriteString(tag)
-	v.visitAttributes(zjson.GetAttributes(obj))
-	v.WriteString(">\n")
-	if blocks := zjson.GetArray(obj, zjson.NameBlock); blocks != nil {
-		zjson.WalkBlock(v, blocks, 0)
-	}
-	if cite := zjson.GetArray(obj, zjson.NameInline); cite != nil {
-		v.WriteString("\n<cite>")
-		zjson.WalkInline(v, cite, 0)
-		v.WriteString("</cite>")
-	}
-	v.WriteString("\n</")
-	v.WriteString(tag)
-	v.Write([]byte{'>'})
-	return false, nil
-}
-
-func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.EndFunc) {
-	saveVisible := v.visibleSpace
-	a := zjson.GetAttributes(obj)
-	if a.HasDefault() {
-		v.visibleSpace = true
-		a = a.Clone().RemoveDefault()
-	}
-	v.WriteString("<pre><code")
-	v.visitAttributes(a)
-	v.Write([]byte{'>'})
-	v.WriteEscaped(zjson.GetString(obj, zjson.NameString))
-	v.WriteString("</code></pre>")
-	v.visibleSpace = saveVisible
-	return false, nil
-}
-
-func (v *htmlV) visitBLOB(obj zjson.Object) (bool, zjson.EndFunc) {
-	switch s := zjson.GetString(obj, zjson.NameString); s {
-	case "":
-	case api.ValueSyntaxSVG:
-		v.writeSVG(obj)
-	default:
-		v.writeDataImage(obj, s, zjson.GetString(obj, zjson.NameString2))
-	}
-	return false, nil
-}
-func (v *htmlV) writeSVG(obj zjson.Object) {
-	if svg := zjson.GetString(obj, zjson.NameString3); svg != "" {
-		// TODO: add inline text / title as description
-		v.WriteString(svg)
-	}
-}
-func (v *htmlV) writeDataImage(obj zjson.Object, syntax, title string) {
-	if b := zjson.GetString(obj, zjson.NameBinary); b != "" {
-		v.WriteString(`<img src="data:image/`)
-		v.WriteString(syntax)
-		v.WriteString(";base64,")
-		v.WriteString(b)
-		if title != "" {
-			v.WriteString(`" title="`)
-			v.WriteAttribute(title)
-		}
-		v.WriteString(`">`)
-	}
-}
-
-func (v *htmlV) visitSpace(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitSpace(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" {
 		v.WriteString(s)
 	} else {
@@ -385,7 +398,7 @@ func (v *htmlV) visitSpace(obj zjson.Object) (bool, zjson.EndFunc) {
 	return false, nil
 }
 
-func (v *htmlV) visitTag(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitTag(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" {
 		v.Write([]byte{'#'})
 		v.WriteString(s)
@@ -393,7 +406,7 @@ func (v *htmlV) visitTag(obj zjson.Object) (bool, zjson.EndFunc) {
 	return false, nil
 }
 
-func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 	s := zjson.GetString(obj, zjson.NameString)
 	a := zjson.GetAttributes(obj)
 	a = a.Clone().Set("href", s)
@@ -427,29 +440,34 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.EndFunc) {
 	}
 }
 
-func (v *htmlV) visitEmbed(obj zjson.Object) (bool, zjson.EndFunc) {
-	// TODO: Move embed text into title attribute --> textenc
+func (v *htmlV) visitEmbed(obj zjson.Object) (bool, zjson.CloseFunc) {
 	src := zjson.GetString(obj, zjson.NameString)
 	if zid := api.ZettelID(src); zid.IsValid() {
 		src = "/z/" + src
 	}
-	fmt.Fprintf(v, `<img src="%s">`, src)
+	v.WriteString(`<img src="`)
+	v.WriteString(src)
+	if title := zjson.GetArray(obj, zjson.NameInline); len(title) > 0 {
+		s := textEncodeInline(title)
+		v.WriteString(`" title="`)
+		v.WriteEscaped(s)
+	}
+	v.WriteString(`">`)
 	return false, nil
 }
 
-func (v *htmlV) visitEmbedBLOB(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitEmbedBLOB(obj zjson.Object) (bool, zjson.CloseFunc) {
 	switch s := zjson.GetString(obj, zjson.NameString); s {
 	case "":
 	case api.ValueSyntaxSVG:
 		v.writeSVG(obj)
 	default:
-		// TODO: Move embed text into title attribute --> textenc
-		v.writeDataImage(obj, s, "")
+		v.writeDataImage(obj, s, textEncodeInline(zjson.GetArray(obj, zjson.NameInline)))
 	}
 	return false, nil
 }
 
-func (v *htmlV) visitCite(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitCite(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" {
 		v.WriteString(s)
 		if zjson.GetArray(obj, zjson.NameInline) != nil {
@@ -459,7 +477,7 @@ func (v *htmlV) visitCite(obj zjson.Object) (bool, zjson.EndFunc) {
 	return true, nil
 }
 
-func (v *htmlV) visitMark(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitMark(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if q := zjson.GetString(obj, zjson.NameString2); q != "" {
 		v.WriteString(`<a id="`)
 		if v.unique != "" {
@@ -475,7 +493,7 @@ func (v *htmlV) visitMark(obj zjson.Object) (bool, zjson.EndFunc) {
 	return true, nil
 }
 
-func (v *htmlV) visitFootnote(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitFootnote(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if fn := zjson.GetArray(obj, zjson.NameInline); fn != nil {
 		v.footnotes = append(v.footnotes, footnodeInfo{fn, zjson.GetAttributes(obj)})
 		n := len(v.footnotes)
@@ -486,7 +504,7 @@ func (v *htmlV) visitFootnote(obj zjson.Object) (bool, zjson.EndFunc) {
 	return false, nil
 }
 
-func (v *htmlV) visitFormat(obj zjson.Object, tag string) (bool, zjson.EndFunc) {
+func (v *htmlV) visitFormat(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	v.Write([]byte{'<'})
 	v.WriteString(tag)
 	v.visitAttributes(zjson.GetAttributes(obj))
@@ -494,7 +512,7 @@ func (v *htmlV) visitFormat(obj zjson.Object, tag string) (bool, zjson.EndFunc) 
 	return true, func() { fmt.Fprintf(v, "</%s>", tag) }
 }
 
-func (v *htmlV) visitLiteral(obj zjson.Object, tag string) (bool, zjson.EndFunc) {
+func (v *htmlV) visitLiteral(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" {
 		oldVisible := v.visibleSpace
 		a := zjson.GetAttributes(obj)
@@ -515,7 +533,7 @@ func (v *htmlV) visitLiteral(obj zjson.Object, tag string) (bool, zjson.EndFunc)
 	return false, nil
 }
 
-func (v *htmlV) visitLiteralComment(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitLiteralComment(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" {
 		v.WriteString("<!-- ")
 		v.WriteString(s)
@@ -524,7 +542,7 @@ func (v *htmlV) visitLiteralComment(obj zjson.Object) (bool, zjson.EndFunc) {
 	return false, nil
 }
 
-func (v *htmlV) visitHTML(obj zjson.Object) (bool, zjson.EndFunc) {
+func (v *htmlV) visitHTML(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" && html.IsSave(s) {
 		v.WriteString(s)
 	}
