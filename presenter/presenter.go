@@ -431,9 +431,10 @@ var slidy2css string
 var slidy2js string
 
 var mycss = `/* Additional CSS to make it a little more beautiful */
-.zs-left { text-align: left }
-.zs-center { text-align: center }
-.zs-right { text-align: right }
-.zs-endnotes { padding-top: .5rem; border-top: 1px solid }
-.zs-broken { text-decoration: line-through }
+.zp-left { text-align: left }
+.zp-center { text-align: center }
+.zp-right { text-align: right }
+.zp-endnotes { padding-top: .5rem; border-top: 1px solid }
+.zp-external {}
+.zp-broken { text-decoration: line-through }
 `

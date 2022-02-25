@@ -57,7 +57,7 @@ func (v *htmlV) visitEndnotes() {
 	if len(v.footnotes) == 0 {
 		return
 	}
-	v.WriteString("<ol class=\"zs-endnotes\">\n")
+	v.WriteString("<ol class=\"zp-endnotes\">\n")
 	for i, fni := range v.footnotes {
 		n := i + 1
 		fmt.Fprintf(v, `<li value="%d" id="fn:%s%d" class="footnote">`, n, v.unique, n)
@@ -297,11 +297,11 @@ func (v *htmlV) visitRow(row zjson.Array, tag string) {
 		if cArray := zjson.MakeArray(cell); len(cArray) == 2 {
 			switch a := zjson.MakeString(cArray[0]); a {
 			case zjson.AlignLeft:
-				fmt.Fprintf(v, `<%s class="zs-left">`, tag)
+				fmt.Fprintf(v, `<%s class="zp-left">`, tag)
 			case zjson.AlignCenter:
-				fmt.Fprintf(v, `<%s class="zs-center">`, tag)
+				fmt.Fprintf(v, `<%s class="zp-center">`, tag)
 			case zjson.AlignRight:
-				fmt.Fprintf(v, `<%s class="zs-right">`, tag)
+				fmt.Fprintf(v, `<%s class="zp-right">`, tag)
 			default:
 				fmt.Fprintf(v, "<%s>", tag)
 			}
@@ -400,7 +400,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.EndFunc) {
 	suffix := ""
 	switch q := zjson.GetString(obj, zjson.NameString2); q {
 	case zjson.RefStateExternal:
-		a = a.AddClass("zs-external").
+		a = a.AddClass("zp-external").
 			Set("target", "_blank").
 			Set("rel", "noopener noreferrer")
 		suffix = "&#10138;"
@@ -408,7 +408,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.EndFunc) {
 	case zjson.RefStateSelf:
 		// TODO: check for current slide to avoid self reference collisions
 	case zjson.RefStateBroken:
-		a = a.AddClass("zs-broken")
+		a = a.AddClass("zp-broken")
 	default:
 		log.Println("LINK", q, s)
 	}
