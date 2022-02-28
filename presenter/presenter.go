@@ -200,24 +200,40 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		return
 	}
 	role := m.GetString(api.KeyRole)
-	if role == slidesRole && writeSlideTOC(ctx, w, c, zid, m, content) {
-		return
+	if role == slidesRole {
+		if slides := processSlideTOC(ctx, c, zid, m); slides != nil {
+			renderSlideTOC(w, slides)
+			return
+		}
 	}
 
 	writeHTMLZettel(ctx, w, c, zid, m, content)
 }
 
-func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m zjson.Meta, content zjson.Array) bool {
+func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, m zjson.Meta) *slideSet {
 	o, err := c.GetZettelOrder(ctx, zid)
 	if err != nil {
-		return false
+		return nil
 	}
-	offset, title, subtitle := 1, getSlideTitle(m), m.GetArray("sub-title")
+	slides := newSlideSetMeta(zid, m)
+	for _, sl := range o.List {
+		if zjZettel, err := c.GetEvaluatedZJSON(ctx, sl.ID, api.PartZettel); err == nil {
+			slides.AddSlide(sl.ID, zjZettel)
+		} else {
+			slides.AddError(sl, err)
+		}
+	}
+	slides.Completion()
+	return slides
+}
+
+func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
+	offset, title, subtitle := 1, slides.Title(), slides.Subtitle()
 	if len(title) > 0 {
 		offset++
 	}
 
-	writeHTMLHeader(w, m.GetString(api.KeyLang))
+	writeHTMLHeader(w, slides.Lang())
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	}
@@ -228,27 +244,25 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 			fmt.Fprintf(w, "<h2>%s</h2>\n", htmlEncodeInline(subtitle))
 		}
 	}
-	fmt.Fprintf(w, "<p><a href=\"/sl/%s\">Start</a></p>\n", zid)
+	fmt.Fprintf(w, "<p><a href=\"/sl/%s\">Start</a></p>\n", slides.zid)
 	io.WriteString(w, "<ol>\n")
-	for i, sl := range o.List {
+	for i, sl := range slides.Slides() {
 		var slideTitle string
-		if slMeta, err := c.GetEvaluatedZJSON(ctx, sl.ID, api.PartMeta); err == nil {
-			slm := zjson.MakeMeta(slMeta)
-			slideTitle = htmlEncodeInline(getSlideTitle(slm))
+		if t := sl.Title(); len(t) > 0 {
+			slideTitle = htmlEncodeInline(t)
 		} else {
-			slideTitle = string(sl.ID)
+			slideTitle = string(sl.zid)
 		}
 		fmt.Fprintf(
 			w,
 			"<li><a href=\"/sl/%s#(%d)\">%s</a></li>\n",
-			zid,
+			slides.zid,
 			i+offset,
 			slideTitle,
 		)
 	}
 	io.WriteString(w, "</ol>\n")
 	writeHTMLFooter(w)
-	return true
 }
 
 func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m zjson.Meta, content zjson.Array) {
@@ -281,15 +295,28 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 	}
-	m := zjson.MakeMeta(zjMeta)
-	title, subtitle := getSlideTitle(m), m.GetArray("sub-title")
+	slides := newSlideSet(zid, zjMeta)
+	for _, sl := range o.List {
+		if zjZettel, err := cfg.c.GetEvaluatedZJSON(ctx, sl.ID, api.PartZettel); err == nil {
+			slides.AddSlide(sl.ID, zjZettel)
+		} else {
+			slides.AddError(sl, err)
+		}
+	}
+	slides.Completion()
+	renderSlideSet(w, slides, cfg)
+}
 
-	lang := m.GetString(api.KeyLang)
+func renderSlideSet(w http.ResponseWriter, slides *slideSet, cfg *slidesConfig) {
+	title := slides.Title()
+	subtitle := slides.Subtitle()
+	lang := slides.Lang()
+
 	writeHTMLHeader(w, lang)
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	}
-	if copyright := getCopyright(cfg, m); copyright != "" {
+	if copyright := slides.Copyright(cfg); copyright != "" {
 		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))
 	}
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s\n%s</style>\n", slidy2css, mycss)
@@ -301,31 +328,23 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		if len(subtitle) > 0 {
 			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", htmlEncodeInline(subtitle))
 		}
-		if author := getAuthor(cfg, m); author != "" {
+		if author := slides.Author(cfg); author != "" {
 			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
 		}
 		io.WriteString(w, "\n</div>\n")
 	}
-	for slideNo, sl := range o.List {
-		zjZettel, err := cfg.c.GetEvaluatedZJSON(ctx, sl.ID, api.PartZettel)
-		if err != nil {
-			continue
-		}
-		slMeta, slContent := zjson.GetMetaContent(zjZettel)
-		if slMeta == nil || slContent == nil {
-			continue
-		}
+	for slideNo, sl := range slides.Slides() {
 		io.WriteString(w, `<div class="slide"`)
-		if slLang := slMeta.GetString(api.KeyLang); slLang != "" && slLang != lang {
+		if slLang := sl.Lang(); slLang != "" && slLang != lang {
 			fmt.Fprintf(w, ` lang="%s"`, slLang)
 		}
 		io.WriteString(w, ">\n")
-		if title := getSlideTitle(slMeta); len(title) > 0 {
+		if title := sl.Title(); len(title) > 0 {
 			fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
 		}
 
 		he := htmlNew(w, 1, fmt.Sprintf("%d:", slideNo))
-		zjson.WalkBlock(he, slContent, 0)
+		zjson.WalkBlock(he, sl.Content(), 0)
 		he.visitEndnotes()
 		io.WriteString(w, "</div>\n")
 	}
@@ -389,40 +408,6 @@ func writeHTMLBody(w http.ResponseWriter) {
 }
 func writeHTMLFooter(w http.ResponseWriter) {
 	io.WriteString(w, "</body>\n</html>\n")
-}
-
-func getSlideTitle(m zjson.Meta) zjson.Array {
-	if title := m.GetArray("slide-title"); len(title) > 0 {
-		return title
-	}
-	return m.GetArray(api.KeyTitle)
-}
-
-func getSlideTitleZid(m zjson.Meta, zid api.ZettelID) zjson.Array {
-	if title := getSlideTitle(m); len(title) > 0 {
-		return title
-	}
-	return zjson.Array{zjson.Object{zjson.NameType: zjson.TypeText, zjson.NameString: string(zid)}}
-}
-
-func getZettelTitleZid(m zjson.Meta, zid api.ZettelID) zjson.Array {
-	if title := m.GetArray(api.KeyTitle); len(title) > 0 {
-		return title
-	}
-	return zjson.Array{zjson.Object{zjson.NameType: zjson.TypeText, zjson.NameString: string(zid)}}
-}
-
-func getAuthor(cfg *slidesConfig, m zjson.Meta) string {
-	if author := m.GetString("author"); author != "" {
-		return author
-	}
-	return cfg.author
-}
-func getCopyright(cfg *slidesConfig, m zjson.Meta) string {
-	if copyright := m.GetString("copyright"); copyright != "" {
-		return copyright
-	}
-	return cfg.copyright
 }
 
 //go:embed slidy2/slidy.css
