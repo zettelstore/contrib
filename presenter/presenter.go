@@ -28,6 +28,7 @@ import (
 
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/client"
+	"zettelstore.de/c/text"
 	"zettelstore.de/c/zjson"
 )
 
@@ -218,7 +219,7 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 
 	writeHTMLHeader(w, m.GetString(api.KeyLang))
 	if len(title) > 0 {
-		fmt.Fprintf(w, "<title>%s</title>\n", textEncodeInline(title))
+		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	}
 	writeHTMLBody(w)
 	if len(title) > 0 {
@@ -251,19 +252,9 @@ func writeSlideTOC(ctx context.Context, w http.ResponseWriter, c *client.Client,
 }
 
 func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m zjson.Meta, content zjson.Array) {
-	// zjZettel, err := c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
-	// if err != nil {
-	// 	var cerr *client.Error
-	// 	if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
-	// 		http.Error(w, fmt.Sprintf("Zettel %s not found", zid), http.StatusNotFound)
-	// 	} else {
-	// 		http.Error(w, fmt.Sprintf("Error retrieving parsed zettel %s: %s", zid, err), http.StatusBadRequest)
-	// 	}
-	// 	return
-	// }
 	title := getSlideTitleZid(m, zid)
 	writeHTMLHeader(w, m.GetString(api.KeyLang))
-	fmt.Fprintf(w, "<title>%s</title>\n", textEncodeInline(title))
+	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	writeHTMLBody(w)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
 
@@ -296,7 +287,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	lang := m.GetString(api.KeyLang)
 	writeHTMLHeader(w, lang)
 	if len(title) > 0 {
-		fmt.Fprintf(w, "<title>%s</title>\n", textEncodeInline(title))
+		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	}
 	if copyright := getCopyright(cfg, m); copyright != "" {
 		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))

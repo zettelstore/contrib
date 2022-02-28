@@ -19,6 +19,7 @@ import (
 
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/html"
+	"zettelstore.de/c/text"
 	"zettelstore.de/c/zjson"
 )
 
@@ -100,7 +101,7 @@ func (v *htmlV) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.Cl
 		return v.visitList(obj, "ul")
 	case zjson.TypeListOrdered:
 		return v.visitList(obj, "ol")
-	case zjson.TypeDescription:
+	case zjson.TypeDescrList:
 		return v.visitDescription(obj)
 	case zjson.TypeListQuotation:
 		return v.visitQuotation(obj)
@@ -150,20 +151,21 @@ func (v *htmlV) visitList(obj zjson.Object, tag string) (bool, zjson.CloseFunc) 
 }
 
 func (v *htmlV) visitDescription(obj zjson.Object) (bool, zjson.CloseFunc) {
-	descrs := zjson.GetArray(obj, zjson.NameDescription)
+	descrs := zjson.GetArray(obj, zjson.NameDescrList)
 	v.WriteString("<dl>\n")
 	for _, elem := range descrs {
-		descr := zjson.MakeArray(elem)
-		if len(descr) == 0 {
+		dObj := zjson.MakeObject(elem)
+		if dObj == nil {
 			continue
 		}
 		v.WriteString("<dt>")
-		v.visitInline(descr[0])
+		v.visitInline(zjson.GetArray(dObj, zjson.NameInline))
 		v.WriteString("</dt>\n")
-		if len(descr) == 1 {
+		descr := zjson.GetArray(dObj, zjson.NameDescription)
+		if len(descr) == 0 {
 			continue
 		}
-		for _, ddv := range descr[1:] {
+		for _, ddv := range descr {
 			dd := zjson.MakeArray(ddv)
 			if len(dd) == 0 {
 				continue
@@ -248,8 +250,8 @@ func (v *htmlV) visitTable(obj zjson.Object) (bool, zjson.CloseFunc) {
 func (v *htmlV) visitRow(row zjson.Array, tag string) {
 	v.WriteString("<tr>")
 	for _, cell := range row {
-		if cArray := zjson.MakeArray(cell); len(cArray) == 2 {
-			switch a := zjson.MakeString(cArray[0]); a {
+		if cObj := zjson.MakeObject(cell); cObj != nil {
+			switch a := zjson.GetString(cObj, zjson.NameString); a {
 			case zjson.AlignLeft:
 				fmt.Fprintf(v, `<%s class="zp-left">`, tag)
 			case zjson.AlignCenter:
@@ -259,7 +261,7 @@ func (v *htmlV) visitRow(row zjson.Array, tag string) {
 			default:
 				fmt.Fprintf(v, "<%s>", tag)
 			}
-			v.visitInline(cArray[1])
+			v.visitInline(zjson.GetArray(cObj, zjson.NameInline))
 			fmt.Fprintf(v, "</%s>", tag)
 		}
 	}
@@ -448,7 +450,7 @@ func (v *htmlV) visitEmbed(obj zjson.Object) (bool, zjson.CloseFunc) {
 	v.WriteString(`<img src="`)
 	v.WriteString(src)
 	if title := zjson.GetArray(obj, zjson.NameInline); len(title) > 0 {
-		s := textEncodeInline(title)
+		s := text.EncodeInlineString(title)
 		v.WriteString(`" title="`)
 		v.WriteEscaped(s)
 	}
@@ -462,7 +464,7 @@ func (v *htmlV) visitEmbedBLOB(obj zjson.Object) (bool, zjson.CloseFunc) {
 	case api.ValueSyntaxSVG:
 		v.writeSVG(obj)
 	default:
-		v.writeDataImage(obj, s, textEncodeInline(zjson.GetArray(obj, zjson.NameInline)))
+		v.writeDataImage(obj, s, text.EncodeInlineString(zjson.GetArray(obj, zjson.NameInline)))
 	}
 	return false, nil
 }
