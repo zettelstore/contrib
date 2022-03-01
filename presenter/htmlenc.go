@@ -84,6 +84,9 @@ func (v *htmlV) ItemArray(a zjson.Array, pos int) zjson.CloseFunc {
 	v.WriteString("<li>")
 	return func() { v.WriteString("</li>\n") }
 }
+func (v *htmlV) Unexpected(val zjson.Value, pos int, exp string) {
+	log.Printf("?%v %d %T %v\n", exp, pos, val, val)
+}
 
 func (v *htmlV) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
 	if pos > 0 {
@@ -124,10 +127,6 @@ func (v *htmlV) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.Cl
 	fmt.Fprintln(v, obj)
 	log.Printf("B%T %v\n", obj, obj)
 	return true, nil
-}
-
-func (v *htmlV) Unexpected(val zjson.Value, pos int, exp string) {
-	log.Printf("?%v %d %T %v\n", exp, pos, val, val)
 }
 
 func (v *htmlV) visitInline(val zjson.Value) {
@@ -423,32 +422,48 @@ func (v *htmlV) visitTag(obj zjson.Object) (bool, zjson.CloseFunc) {
 }
 
 func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
-	s := zjson.GetString(obj, zjson.NameString)
+	ref := zjson.GetString(obj, zjson.NameString)
+	in := zjson.GetArray(obj, zjson.NameInline)
+	if ref == "" {
+		return len(in) > 0, nil
+	}
 	a := zjson.GetAttributes(obj)
-	a = a.Clone().Set("href", s)
 	suffix := ""
 	switch q := zjson.GetString(obj, zjson.NameString2); q {
 	case zjson.RefStateExternal:
-		a = a.AddClass("zp-external").
+		a = a.Clone().Set("href", ref).
+			AddClass("zp-external").
 			Set("target", "_blank").
 			Set("rel", "noopener noreferrer")
 		suffix = "&#10138;"
-	case zjson.RefStateZettel, zjson.RefStateBased, zjson.RefStateHosted:
+	case zjson.RefStateZettel:
+		// TODO: check for fragment
+		// TODO: make link absolute
+		a = a.Clone().Set("href", "/"+ref)
+	case zjson.RefStateBased, zjson.RefStateHosted:
+		a = a.Clone().Set("href", ref)
 	case zjson.RefStateSelf:
 		// TODO: check for current slide to avoid self reference collisions
+		a = a.Clone().Set("href", ref)
 	case zjson.RefStateBroken:
-		a = a.AddClass("zp-broken")
+		a = a.Clone().AddClass("zp-broken")
 	default:
-		log.Println("LINK", q, s)
+		log.Println("LINK", q, ref)
 	}
-	v.WriteString("<a")
-	v.visitAttributes(a)
-	v.Write([]byte{'>'})
+
+	if len(a) > 0 {
+		v.WriteString("<a")
+		v.visitAttributes(a)
+		v.Write([]byte{'>'})
+	}
 
 	children := true
-	if zjson.GetArray(obj, zjson.NameInline) == nil {
-		v.WriteString(s)
+	if len(in) == 0 {
+		v.WriteString(ref)
 		children = false
+	}
+	if len(a) <= 0 {
+		return children, nil
 	}
 	return children, func() {
 		v.WriteString("</a>")

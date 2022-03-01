@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
-	zettelstore.de/c v0.0.0-20220228150806-9fa9ec9ecfdc
+	zettelstore.de/c v0.0.0-20220301160027-cf1be5463012
 )
 
 require golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c // indirect
