@@ -23,13 +23,14 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
-func htmlNew(w io.Writer, headingOffset int, unique string) *htmlV {
+func htmlNew(w io.Writer, headingOffset int) *htmlV {
 	return &htmlV{
 		w:             w,
 		headingOffset: headingOffset,
-		unique:        unique,
 	}
 }
+
+func (v *htmlV) SetUnique(s string) { v.unique = s }
 
 func htmlEncodeInline(in zjson.Array) string {
 	var buf bytes.Buffer

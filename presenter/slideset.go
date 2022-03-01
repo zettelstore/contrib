@@ -71,12 +71,19 @@ func (s *slideSet) Copyright(cfg *slidesConfig) string {
 	return cfg.copyright
 }
 
-func (s *slideSet) AddSlide(zid api.ZettelID, zjZettel zjson.Value) {
+type getZettelZSONFunc func(api.ZettelID) (zjson.Value, error)
+
+func (s *slideSet) AddSlide(zid api.ZettelID, getZettel getZettelZSONFunc) {
 	for _, sl := range s.slides {
 		if sl.zid == zid {
 			s.slides = append(s.slides, sl)
 			return
 		}
+	}
+	zjZettel, err := getZettel(zid)
+	if err != nil {
+		// TODO: addartificial slide with error message / data
+		return
 	}
 	slMeta, slContent := zjson.GetMetaContent(zjZettel)
 	if slMeta == nil || slContent == nil {
@@ -91,11 +98,7 @@ func (s *slideSet) AddSlide(zid api.ZettelID, zjZettel zjson.Value) {
 	s.slides = append(s.slides, sl)
 }
 
-func (s *slideSet) AddError(data api.ZidMetaJSON, err error) {
-	// TODO: add artificial slide with error data
-}
-
-func (s *slideSet) Completion() {
+func (s *slideSet) Completion(getZettel getZettelZSONFunc) {
 	if s.completed {
 		return
 	}
