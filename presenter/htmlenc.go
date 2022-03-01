@@ -113,6 +113,10 @@ func (v *htmlV) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.Cl
 		return v.visitRegion(obj, "blockquote")
 	case zjson.TypeVerbatimCode:
 		return v.visitVerbatimCode(obj)
+	case zjson.TypeVerbatimComment:
+		return v.visitVerbatimComment(obj)
+	case zjson.TypeVerbatimHTML:
+		return v.visitHTML(obj)
 	case zjson.TypeBLOB:
 		return v.visitBLOB(obj)
 	}
@@ -302,6 +306,15 @@ func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
 	return false, nil
 }
 
+func (v *htmlV) visitVerbatimComment(obj zjson.Object) (bool, zjson.CloseFunc) {
+	if s := zjson.GetString(obj, zjson.NameString); s != "" {
+		v.WriteString("<!--\n")
+		v.WriteString(s)
+		v.WriteString("\n-->")
+	}
+	return false, nil
+}
+
 func (v *htmlV) visitBLOB(obj zjson.Object) (bool, zjson.CloseFunc) {
 	switch s := zjson.GetString(obj, zjson.NameString); s {
 	case "":
@@ -383,7 +396,7 @@ func (v *htmlV) InlineObject(t string, obj zjson.Object, pos int) (bool, zjson.C
 		return v.visitLiteral(obj, "kbd")
 	case zjson.TypeLiteralOutput:
 		return v.visitLiteral(obj, "samp")
-	case zjson.TypeLiteralHTML, zjson.TypeVerbatimHTML:
+	case zjson.TypeLiteralHTML:
 		return v.visitHTML(obj)
 	}
 	fmt.Fprintln(v, obj)
