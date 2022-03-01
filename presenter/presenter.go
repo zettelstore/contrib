@@ -269,6 +269,24 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	writeHTMLBody(w)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
+	hasHeader := false
+	for k, v := range m {
+		if v.Type != zjson.MetaURL {
+			continue
+		}
+		u := zjson.MakeString(v.Value)
+		if u == "" {
+			continue
+		}
+		if !hasHeader {
+			io.WriteString(w, "<ul class=\"zp-header\">\n")
+			hasHeader = true
+		}
+		fmt.Fprintf(w, "<li>%s: <a href=\"%s\" target=\"_blank\">%s</a>&#10138;</li>", html.EscapeString(k), u, html.EscapeString(u))
+	}
+	if hasHeader {
+		io.WriteString(w, "</ul>\n")
+	}
 
 	he := htmlNew(w, 1)
 	zjson.WalkBlock(he, content, 0)
@@ -468,6 +486,7 @@ var mycss = `/* Additional CSS to make it a little more beautiful */
 .zp-endnotes { padding-top: .5rem; border-top: 1px solid }
 .zp-external {}
 .zp-broken { text-decoration: line-through }
+.zp-header { list-style-type: none; margin: 0; padding: 0;}
 `
 
 // Everything below this line should move into client/zjson
