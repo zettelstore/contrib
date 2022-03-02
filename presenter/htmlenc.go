@@ -28,12 +28,14 @@ func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage bool) *html
 	return &htmlV{
 		w:             w,
 		s:             s,
+		curSlide:      -1,
 		headingOffset: headingOffset,
 		embedImage:    embedImage,
 	}
 }
 
-func (v *htmlV) SetUnique(s string) { v.unique = s }
+func (v *htmlV) SetUnique(s string)         { v.unique = s }
+func (v *htmlV) SetCurrentSlide(n, off int) { v.curSlide = n; v.offset = off }
 
 func htmlEncodeInline(in zjson.Array) string {
 	var buf bytes.Buffer
@@ -49,6 +51,8 @@ type footnodeInfo struct {
 type htmlV struct {
 	w             io.Writer
 	s             *slideSet
+	curSlide      int
+	offset        int
 	headingOffset int
 	unique        string
 	footnotes     []footnodeInfo
@@ -442,9 +446,17 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 			Set("rel", "noopener noreferrer")
 		suffix = "&#10138;"
 	case zjson.RefStateZettel:
+		zid := api.ZettelID(ref)
 		// TODO: check for fragment
-		// TODO: make link absolute
-		a = a.Clone().Set("href", "/"+ref)
+		if n := v.s.GetSlideNo(v.curSlide, zid); n >= 0 {
+			// TODO: process and add fragment
+			a = a.Clone().Set("href", fmt.Sprintf("#(%d)", n+v.offset))
+		} else {
+			// TODO: make link absolute
+			// TODO: if no slideshow, produce no link, only linktext
+			a = a.Clone().Set("href", "/"+ref)
+			suffix = "&#10547;"
+		}
 	case zjson.RefStateBased, zjson.RefStateHosted:
 		a = a.Clone().Set("href", ref)
 	case zjson.RefStateSelf:
@@ -466,9 +478,6 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 	if len(in) == 0 {
 		v.WriteString(ref)
 		children = false
-	}
-	if len(a) <= 0 {
-		return children, nil
 	}
 	return children, func() {
 		v.WriteString("</a>")

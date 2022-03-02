@@ -349,7 +349,9 @@ func renderSlideSet(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) 
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", slidy2css)
 	writeHTMLBody(w)
 
+	offset := 1
 	if len(title) > 0 {
+		offset++
 		io.WriteString(w, "<div class=\"slide titlepage\">\n")
 		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", htmlEncodeInline(title))
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
@@ -371,6 +373,7 @@ func renderSlideSet(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) 
 		}
 
 		he := htmlNew(w, slides, 1, false)
+		he.SetCurrentSlide(slideNo, offset)
 		he.SetUnique(fmt.Sprintf("%d:", slideNo))
 		zjson.WalkBlock(he, sl.Content(), 0)
 		he.visitEndnotes()
@@ -397,7 +400,7 @@ func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 	if len(title) > 0 {
 		offset++
 		// TODO: add <a if="(slideno)"...> to allow internal references.
-		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
+		fmt.Fprintf(w, "<h1 id=\"(1)\">%s</h1>\n", htmlEncodeInline(title))
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
 			fmt.Fprintf(w, "<h2>%s</h2>\n", htmlEncodeInline(subtitle))
 		}
@@ -411,8 +414,12 @@ func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 	}
 	he := htmlNew(w, slides, 1, true)
 	for slideNo, sl := range slides.Slides() {
+		he.SetCurrentSlide(slideNo, offset)
+		htmlSlideNo := slideNo + offset
 		if title := sl.Title(); len(title) > 0 {
-			fmt.Fprintf(w, "<h1>%d. %s</h1>\n", slideNo+offset, htmlEncodeInline(title))
+			fmt.Fprintf(w, "<h1 id=\"(%d)\">%d. %s</h1>\n", htmlSlideNo, htmlSlideNo, htmlEncodeInline(title))
+		} else {
+			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", htmlSlideNo)
 		}
 		slLang := sl.Lang()
 		if slLang != "" && slLang != lang {

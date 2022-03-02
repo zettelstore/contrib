@@ -67,6 +67,31 @@ func (s *slideSet) GetSlide(zid api.ZettelID) *slide {
 }
 func (s *slideSet) Slides() []*slide { return s.seqSlide }
 
+func (s *slideSet) GetSlideNo(curNo int, zid api.ZettelID) int {
+	if _, found := s.setSlide[zid]; !found {
+		return -1
+	}
+	if curNo < 0 || curNo >= len(s.seqSlide) {
+		return curNo
+	}
+
+	// Search backward
+	for n := curNo; n >= 0; n-- {
+		if s.seqSlide[n].zid == zid {
+			return n
+		}
+	}
+
+	// Search forward
+	for n := curNo + 1; n < len(s.seqSlide); n++ {
+		if s.seqSlide[n].zid == zid {
+			return n
+		}
+	}
+
+	return -1 // Not found
+}
+
 func (s *slideSet) HasImage(zid api.ZettelID) bool {
 	_, found := s.setImage[zid]
 	return found
@@ -227,7 +252,6 @@ func (v *collectVisitor) InlineObject(t string, obj zjson.Object, pos int) (bool
 
 func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 	if _, found := v.visited[zid]; found || v.s.GetSlide(zid) != nil {
-		log.Println("DUPZ", zid)
 		return
 	}
 	// log.Println("ZETT", zid)
