@@ -24,13 +24,14 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
-func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage bool) *htmlV {
+func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage, extZettelLinks bool) *htmlV {
 	return &htmlV{
-		w:             w,
-		s:             s,
-		curSlide:      -1,
-		headingOffset: headingOffset,
-		embedImage:    embedImage,
+		w:              w,
+		s:              s,
+		curSlide:       -1,
+		headingOffset:  headingOffset,
+		embedImage:     embedImage,
+		extZettelLinks: extZettelLinks,
 	}
 }
 
@@ -49,15 +50,16 @@ type footnodeInfo struct {
 }
 
 type htmlV struct {
-	w             io.Writer
-	s             *slideSet
-	curSlide      int
-	offset        int
-	headingOffset int
-	unique        string
-	footnotes     []footnodeInfo
-	visibleSpace  bool
-	embedImage    bool
+	w              io.Writer
+	s              *slideSet
+	curSlide       int
+	offset         int
+	headingOffset  int
+	unique         string
+	footnotes      []footnodeInfo
+	visibleSpace   bool
+	embedImage     bool
+	extZettelLinks bool
 }
 
 func (v *htmlV) Write(b []byte) (int, error)       { return v.w.Write(b) }
@@ -451,10 +453,9 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 		if n := v.s.GetSlideNo(v.curSlide, zid); n >= 0 {
 			// TODO: process and add fragment
 			a = a.Clone().Set("href", fmt.Sprintf("#(%d)", n+v.offset))
-		} else {
+		} else if v.extZettelLinks {
 			// TODO: make link absolute
-			// TODO: if no slideshow, produce no link, only linktext
-			a = a.Clone().Set("href", "/"+ref)
+			a = a.Clone().Set("href", "/"+ref).Set("target", "_blank")
 			suffix = "&#10547;"
 		}
 	case zjson.RefStateBased, zjson.RefStateHosted:

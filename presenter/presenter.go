@@ -273,7 +273,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 		fmt.Fprintf(w, "<li><a href=\"/sl/%s#(%d)\">%s</a></li>\n", slides.zid, i+offset, slideTitle)
 	}
 	io.WriteString(w, "</ol>\n")
-	fmt.Fprintf(w, "<p><a href=\"/ho/%s\">Handout</a></p>\n", slides.zid)
+	fmt.Fprintf(w, "<p><a href=\"/ho/%s\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid)
 	writeHTMLFooter(w)
 }
 
@@ -302,7 +302,7 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 		io.WriteString(w, "</ul>\n")
 	}
 
-	he := htmlNew(w, nil, 1, false)
+	he := htmlNew(w, nil, 1, false, true)
 	zjson.WalkBlock(he, content, 0)
 	he.visitEndnotes()
 
@@ -372,7 +372,7 @@ func renderSlideSet(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) 
 			fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
 		}
 
-		he := htmlNew(w, slides, 1, false)
+		he := htmlNew(w, slides, 1, false, true)
 		he.SetCurrentSlide(slideNo, offset)
 		he.SetUnique(fmt.Sprintf("%d:", slideNo))
 		zjson.WalkBlock(he, sl.Content(), 0)
@@ -412,8 +412,11 @@ func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 		}
 		io.WriteString(w, "<hr>\n")
 	}
-	he := htmlNew(w, slides, 1, true)
+	he := htmlNew(w, slides, 1, true, false)
 	for slideNo, sl := range slides.Slides() {
+		if slideNo > 0 {
+			io.WriteString(w, "<hr>\n")
+		}
 		he.SetCurrentSlide(slideNo, offset)
 		htmlSlideNo := slideNo + offset
 		if title := sl.Title(); len(title) > 0 {
@@ -431,7 +434,6 @@ func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 		if slLang != "" && slLang != lang {
 			io.WriteString(w, "</div>")
 		}
-		io.WriteString(w, "<hr>\n")
 	}
 	he.visitEndnotes()
 	writeHTMLFooter(w)

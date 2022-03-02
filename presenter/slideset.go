@@ -264,10 +264,11 @@ func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 	slMeta, slContent := zjson.GetMetaContent(zjZettel)
 	if slMeta == nil || slContent == nil {
 		// TODO: Add artificial slide with error message
+		log.Println("MECO", zid)
 		return
 	}
 	if vis := slMeta.GetString(api.KeyVisibility); vis != api.ValueVisibilityPublic {
-		log.Println("VISZ", zid, vis)
+		// log.Println("VISZ", zid, vis)
 		return
 	}
 	v.s.AdditionalSlide(zid, slMeta, slContent)
