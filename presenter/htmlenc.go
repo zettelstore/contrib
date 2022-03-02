@@ -12,6 +12,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -23,10 +24,12 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
-func htmlNew(w io.Writer, headingOffset int) *htmlV {
+func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage bool) *htmlV {
 	return &htmlV{
 		w:             w,
+		s:             s,
 		headingOffset: headingOffset,
+		embedImage:    embedImage,
 	}
 }
 
@@ -45,10 +48,12 @@ type footnodeInfo struct {
 
 type htmlV struct {
 	w             io.Writer
+	s             *slideSet
 	headingOffset int
 	unique        string
 	footnotes     []footnodeInfo
 	visibleSpace  bool
+	embedImage    bool
 }
 
 func (v *htmlV) Write(b []byte) (int, error)       { return v.w.Write(b) }
@@ -473,18 +478,46 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 
 func (v *htmlV) visitEmbed(obj zjson.Object) (bool, zjson.CloseFunc) {
 	src := zjson.GetString(obj, zjson.NameString)
-	if zid := api.ZettelID(src); zid.IsValid() {
+	if syntax := zjson.GetString(obj, zjson.NameString2); syntax == api.ValueSyntaxSVG {
+		v.visitEmbedSVG(src)
+		return false, nil
+	}
+	zid := api.ZettelID(src)
+	if v.s != nil && v.embedImage && zid.IsValid() && v.s.HasImage(zid) {
+		if img, found := v.s.GetImage(zid); found {
+			v.WriteString(`<img src="data:image/`)
+			v.WriteString(img.syntax)
+			v.WriteString(";base64,")
+			base64.NewEncoder(base64.StdEncoding, v).Write(img.data)
+			v.writeImageTitle(obj)
+			return false, nil
+		}
+	}
+	if zid.IsValid() {
 		src = "/z/" + src
 	}
 	v.WriteString(`<img src="`)
 	v.WriteString(src)
+	v.writeImageTitle(obj)
+	return false, nil
+}
+func (v *htmlV) visitEmbedSVG(src string) {
+	zid := api.ZettelID(src)
+	if v.s != nil && zid.IsValid() && v.s.HasImage(zid) {
+		if svg, found := v.s.GetImage(zid); found && svg.syntax == api.ValueSyntaxSVG {
+			v.Write(svg.data)
+			return
+		}
+	}
+	fmt.Fprintf(v, "<figure><embed type=\"image/svg+xml\" src=\"%s\" /></figure>\n", "/svg/"+src)
+}
+func (v *htmlV) writeImageTitle(obj zjson.Object) {
 	if title := zjson.GetArray(obj, zjson.NameInline); len(title) > 0 {
 		s := text.EncodeInlineString(title)
 		v.WriteString(`" title="`)
 		v.WriteEscaped(s)
 	}
 	v.WriteString(`">`)
-	return false, nil
 }
 
 func (v *htmlV) visitEmbedBLOB(obj zjson.Object) (bool, zjson.CloseFunc) {

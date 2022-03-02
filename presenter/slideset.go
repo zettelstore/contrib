@@ -28,12 +28,18 @@ func (s *slide) Title() zjson.Array   { return getSlideTitle(s.meta) }
 func (s *slide) Lang() string         { return s.meta.GetString(api.KeyLang) }
 func (s *slide) Content() zjson.Array { return s.content }
 
+type image struct {
+	syntax string
+	data   []byte
+}
+
 // slideSet is the sequence of slides shown.
 type slideSet struct {
 	zid       api.ZettelID
 	meta      zjson.Meta // Metadata of slideset
-	seq       []*slide
-	set       map[api.ZettelID]*slide
+	seqSlide  []*slide   // slide may occur more than once in seq, but should be stored only once
+	setSlide  map[api.ZettelID]*slide
+	setImage  map[api.ZettelID]image
 	completed bool
 }
 
@@ -46,19 +52,39 @@ func newSlideSet(zid api.ZettelID, zjMeta zjson.Value) *slideSet {
 }
 func newSlideSetMeta(zid api.ZettelID, m zjson.Meta) *slideSet {
 	return &slideSet{
-		zid:  zid,
-		meta: m,
-		set:  make(map[api.ZettelID]*slide),
+		zid:      zid,
+		meta:     m,
+		setSlide: make(map[api.ZettelID]*slide),
+		setImage: make(map[api.ZettelID]image),
 	}
 }
 
 func (s *slideSet) GetSlide(zid api.ZettelID) *slide {
-	if sl, found := s.set[zid]; found {
+	if sl, found := s.setSlide[zid]; found {
 		return sl
 	}
 	return nil
 }
-func (s *slideSet) Slides() []*slide { return s.seq }
+func (s *slideSet) Slides() []*slide { return s.seqSlide }
+
+func (s *slideSet) HasImage(zid api.ZettelID) bool {
+	_, found := s.setImage[zid]
+	return found
+}
+func (s *slideSet) AddImage(zid api.ZettelID, syntax string, data []byte) {
+	s.setImage[zid] = image{syntax, data}
+}
+func (s *slideSet) GetImage(zid api.ZettelID) (image, bool) {
+	img, found := s.setImage[zid]
+	return img, found
+}
+func (s *slideSet) Images() []api.ZettelID {
+	result := make([]api.ZettelID, 0, len(s.setImage))
+	for zid := range s.setImage {
+		result = append(result, zid)
+	}
+	return result
+}
 
 func (s *slideSet) Title() zjson.Array { return getSlideTitle(s.meta) }
 func (s *slideSet) Subtitle() zjson.Array {
@@ -81,11 +107,12 @@ func (s *slideSet) Copyright(cfg *slidesConfig) string {
 	return cfg.copyright
 }
 
+type getZettelContentFunc func(api.ZettelID) ([]byte, error)
 type getZettelZSONFunc func(api.ZettelID) (zjson.Value, error)
 
 func (s *slideSet) AddSlide(zid api.ZettelID, getZettel getZettelZSONFunc) {
-	if sl, found := s.set[zid]; found {
-		s.seq = append(s.seq, sl)
+	if sl, found := s.setSlide[zid]; found {
+		s.seqSlide = append(s.seqSlide, sl)
 		return
 	}
 	zjZettel, err := getZettel(zid)
@@ -103,8 +130,8 @@ func (s *slideSet) AddSlide(zid api.ZettelID, getZettel getZettelZSONFunc) {
 		meta:    slMeta,
 		content: slContent,
 	}
-	s.seq = append(s.seq, sl)
-	s.set[zid] = sl
+	s.seqSlide = append(s.seqSlide, sl)
+	s.setSlide[zid] = sl
 }
 
 func (s *slideSet) AdditionalSlide(zid api.ZettelID, m zjson.Meta, content zjson.Array) {
@@ -114,24 +141,25 @@ func (s *slideSet) AdditionalSlide(zid api.ZettelID, m zjson.Meta, content zjson
 		meta:    m,
 		content: content,
 	}
-	s.seq = append(s.seq, sl)
-	s.set[zid] = sl
+	s.seqSlide = append(s.seqSlide, sl)
+	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) Completion(getZettel getZettelZSONFunc) {
+func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON getZettelZSONFunc) {
 	if s.completed {
 		return
 	}
-	v := collectVisitor{getZettel: getZettel, s: s}
+	v := collectVisitor{getZettel: getZettel, getZettelZJSON: getZettelZJSON, s: s}
 	v.Collect()
 	s.completed = true
 }
 
 type collectVisitor struct {
-	getZettel getZettelZSONFunc
-	s         *slideSet
-	stack     []api.ZettelID
-	visited   map[api.ZettelID]*slide
+	getZettel      getZettelContentFunc
+	getZettelZJSON getZettelZSONFunc
+	s              *slideSet
+	stack          []api.ZettelID
+	visited        map[api.ZettelID]*slide
 }
 
 func (v *collectVisitor) Push(zid api.ZettelID) {
@@ -186,6 +214,12 @@ func (v *collectVisitor) InlineObject(t string, obj zjson.Object, pos int) (bool
 		}
 		log.Println("LINK", pos, s, obj)
 	case zjson.TypeEmbed:
+		s := zjson.GetString(obj, zjson.NameString)
+		zid := api.ZettelID(s)
+		if zid.IsValid() {
+			v.visitImage(zid, zjson.GetString(obj, zjson.NameString2))
+			break
+		}
 		log.Println("EMBE", pos, obj)
 	}
 	return true, nil
@@ -193,11 +227,11 @@ func (v *collectVisitor) InlineObject(t string, obj zjson.Object, pos int) (bool
 
 func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 	if _, found := v.visited[zid]; found || v.s.GetSlide(zid) != nil {
-		log.Println("DUPL", zid)
+		log.Println("DUPZ", zid)
 		return
 	}
 	// log.Println("ZETT", zid)
-	zjZettel, err := v.getZettel(zid)
+	zjZettel, err := v.getZettelZJSON(zid)
 	if err != nil {
 		log.Println("GETZ", err)
 		// TODO: add artificial slide with error message / data
@@ -209,11 +243,28 @@ func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 		return
 	}
 	if vis := slMeta.GetString(api.KeyVisibility); vis != api.ValueVisibilityPublic {
-		log.Println("VISI", zid, vis)
+		log.Println("VISZ", zid, vis)
 		return
 	}
 	v.s.AdditionalSlide(zid, slMeta, slContent)
 	v.Push(zid)
+}
+
+func (v *collectVisitor) visitImage(zid api.ZettelID, syntax string) {
+	if v.s.HasImage(zid) {
+		log.Println("DUPI", zid)
+		return
+	}
+
+	// TODO: check for valid visibility
+
+	data, err := v.getZettel(zid)
+	if err != nil {
+		log.Println("GETI", err)
+		// TODO: add artificial image with error message / zid
+		return
+	}
+	v.s.AddImage(zid, syntax, data)
 }
 
 // Utility function to retrieve some slide/slideset metadata.
