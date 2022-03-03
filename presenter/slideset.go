@@ -194,12 +194,8 @@ func (s *slideSet) Author(cfg *slidesConfig) string {
 	}
 	return cfg.author
 }
-func (s *slideSet) Copyright(cfg *slidesConfig) string {
-	if copyright := s.meta.GetString(api.KeyCopyright); copyright != "" {
-		return copyright
-	}
-	return cfg.copyright
-}
+func (s *slideSet) Copyright() string { return s.meta.GetString(api.KeyCopyright) }
+func (s *slideSet) License() string   { return s.meta.GetString(api.KeyLicense) }
 
 type getZettelContentFunc func(api.ZettelID) ([]byte, error)
 type getZettelZSONFunc func(api.ZettelID) (zjson.Value, error)

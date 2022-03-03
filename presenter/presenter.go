@@ -110,7 +110,6 @@ type slidesConfig struct {
 	c            *client.Client
 	slideSetRole string
 	author       string
-	copyright    string
 }
 
 func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
@@ -131,9 +130,6 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	}
 	if author, ok := m[KeyAuthor]; ok {
 		result.author = author
-	}
-	if copyright, ok := m[api.KeyCopyright]; ok {
-		result.copyright = copyright
 	}
 	return result, nil
 }
@@ -331,21 +327,22 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		return cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartZettel, false)
 	}
 	setupSlideSet(slides, o.List, getZettel, getZettelZJSON)
-	render(w, cfg, slides)
+	render(w, slides, slides.Author(cfg))
 }
 
-type renderSlidesFunc func(http.ResponseWriter, *slidesConfig, *slideSet)
+type renderSlidesFunc func(http.ResponseWriter, *slideSet, string)
 
-func renderSlideShow(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
+func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	}
-	if copyright := slides.Copyright(cfg); copyright != "" {
-		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))
-	}
+	writeMeta(w, "author", author)
+	writeMeta(w, "copyright", slides.Copyright())
+	writeMeta(w, "license", slides.License())
+	writeMeta(w, "font-size-adjustment", "-1")
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", slidy2css)
 	writeHTMLBody(w)
 
@@ -357,7 +354,7 @@ func renderSlideShow(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet)
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
 			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", htmlEncodeInline(subtitle))
 		}
-		if author := slides.Author(cfg); author != "" {
+		if author != "" {
 			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
 		}
 		io.WriteString(w, "\n</div>\n")
@@ -384,17 +381,18 @@ func renderSlideShow(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet)
 	writeHTMLFooter(w)
 }
 
-func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
+func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	}
-	copyright := slides.Copyright(cfg)
-	if copyright != "" {
-		fmt.Fprintf(w, "<meta name=\"copyright\" content=\"%s\" />\n", html.EscapeString(copyright))
-	}
+	writeMeta(w, "author", author)
+	copyright := slides.Copyright()
+	writeMeta(w, "copyright", copyright)
+	license := slides.License()
+	writeMeta(w, "license", license)
 	writeHTMLBody(w)
 
 	offset := 1
@@ -404,23 +402,18 @@ func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
 			fmt.Fprintf(w, "<h2>%s</h2>\n", htmlEncodeInline(subtitle))
 		}
-		if author := slides.Author(cfg); author != "" {
+		if author != "" {
 			fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(author))
 		}
 		if copyright != "" {
 			fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(copyright))
 		}
-		io.WriteString(w, "<hr>\n")
+		if license != "" {
+			fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(license))
+		}
 	}
 	he := htmlNew(w, slides, 1, true, false)
-	first := true
 	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
-		if first {
-			first = false
-		} else {
-			io.WriteString(w, "<hr>\n")
-		}
-
 		he.SetCurrentSlide(si)
 		sl := si.Slide
 		if title := sl.Title(); len(title) > 0 {
@@ -503,6 +496,11 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 
 func writeHTMLBody(w http.ResponseWriter)   { io.WriteString(w, "</head>\n<body>\n") }
 func writeHTMLFooter(w http.ResponseWriter) { io.WriteString(w, "</body>\n</html>\n") }
+func writeMeta(w http.ResponseWriter, key, val string) {
+	if val != "" {
+		fmt.Fprintf(w, "<meta name=\"%s\" content=\"%s\" />\n", key, html.EscapeString(val))
+	}
+}
 
 //go:embed slidy2/slidy.css
 var slidy2css string
@@ -514,7 +512,7 @@ var mycss = `/* Additional CSS to make it a little more beautiful */
 .zp-left { text-align: left }
 .zp-center { text-align: center }
 .zp-right { text-align: right }
-.zp-endnotes { padding-top: .5rem; border-top: 1px solid }
+.zp-endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }
 .zp-external {}
 .zp-broken { text-decoration: line-through }
 .zp-header { list-style-type: none; margin: 0; padding: 0;}
