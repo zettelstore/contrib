@@ -28,15 +28,14 @@ func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage, extZettelL
 	return &htmlV{
 		w:              w,
 		s:              s,
-		curSlide:       -1,
 		headingOffset:  headingOffset,
 		embedImage:     embedImage,
 		extZettelLinks: extZettelLinks,
 	}
 }
 
-func (v *htmlV) SetUnique(s string)         { v.unique = s }
-func (v *htmlV) SetCurrentSlide(n, off int) { v.curSlide = n; v.offset = off }
+func (v *htmlV) SetUnique(s string)            { v.unique = s }
+func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
 
 func htmlEncodeInline(in zjson.Array) string {
 	var buf bytes.Buffer
@@ -52,8 +51,7 @@ type footnodeInfo struct {
 type htmlV struct {
 	w              io.Writer
 	s              *slideSet
-	curSlide       int
-	offset         int
+	curSlide       *slideInfo
 	headingOffset  int
 	unique         string
 	footnotes      []footnodeInfo
@@ -450,9 +448,9 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 	case zjson.RefStateZettel:
 		zid := api.ZettelID(ref)
 		// TODO: check for fragment
-		if n := v.s.GetSlideNo(v.curSlide, zid); n >= 0 {
+		if si := v.curSlide.GetSlide(zid); si != nil {
 			// TODO: process and add fragment
-			a = a.Clone().Set("href", fmt.Sprintf("#(%d)", n+v.offset))
+			a = a.Clone().Set("href", fmt.Sprintf("#(%d)", si.Number))
 		} else if v.extZettelLinks {
 			// TODO: make link absolute
 			a = a.Clone().Set("href", "/"+ref).Set("target", "_blank")
@@ -639,5 +637,3 @@ func (v *htmlV) visitAttributes(a zjson.Attributes) {
 		v.Write([]byte{'"'})
 	}
 }
-
-// Everything below this line should move into client/zjson

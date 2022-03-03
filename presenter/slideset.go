@@ -17,6 +17,22 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
+// Constants for zettel metadata keys
+const (
+	KeyAuthor       = "author"
+	KeySlideSetRole = "slideset-role" // Only for Presenter configuration
+	KeySlideRole    = "slide-role"
+	KeySlideTitle   = "slide-title"
+	KeySubTitle     = "sub-title" // TODO: Could possibly move to ZS-Client
+)
+
+// Constants for some values
+const (
+	DefaultSlideSetRole = "slideset"
+	SlideRoleHandout    = "handout" // TODO: Includes manual?
+	SlideRoleShow       = "show"
+)
+
 // Slide is one slide that is shown one or more times.
 type slide struct {
 	zid     api.ZettelID // The zettel identifier
@@ -24,9 +40,55 @@ type slide struct {
 	content zjson.Array  // Zettel / slide content
 }
 
-func (s *slide) Title() zjson.Array   { return getSlideTitle(s.meta) }
-func (s *slide) Lang() string         { return s.meta.GetString(api.KeyLang) }
-func (s *slide) Content() zjson.Array { return s.content }
+func (sl *slide) Title() zjson.Array   { return getSlideTitle(sl.meta) }
+func (sl *slide) Lang() string         { return sl.meta.GetString(api.KeyLang) }
+func (sl *slide) Content() zjson.Array { return sl.content }
+
+func (sl *slide) HasSlideRole(sr string) bool {
+	if sr == "" {
+		return true
+	}
+	s := sl.meta.GetString(KeySlideRole)
+	if s == "" {
+		return true
+	}
+	return s == sr
+}
+
+type slideInfo struct {
+	prev   *slideInfo
+	Slide  *slide
+	Number int
+	next   *slideInfo
+}
+
+func (si *slideInfo) Next() *slideInfo {
+	if si == nil {
+		return nil
+	}
+	return si.next
+}
+
+func (si *slideInfo) GetSlide(zid api.ZettelID) *slideInfo {
+	if si == nil {
+		return nil
+	}
+
+	// Search backward
+	for res := si; res != nil; res = res.prev {
+		if res.Slide.zid == zid {
+			return res
+		}
+	}
+
+	// Search forward
+	for res := si.next; res != nil; res = res.next {
+		if res.Slide.zid == zid {
+			return res
+		}
+	}
+	return nil
+}
 
 type image struct {
 	syntax string
@@ -65,31 +127,38 @@ func (s *slideSet) GetSlide(zid api.ZettelID) *slide {
 	}
 	return nil
 }
-func (s *slideSet) Slides() []*slide { return s.seqSlide }
 
-func (s *slideSet) GetSlideNo(curNo int, zid api.ZettelID) int {
-	if _, found := s.setSlide[zid]; !found {
-		return -1
+func (s *slideSet) SlideZids() []api.ZettelID {
+	result := make([]api.ZettelID, len(s.seqSlide))
+	for i, sl := range s.seqSlide {
+		result[i] = sl.zid
 	}
-	if curNo < 0 || curNo >= len(s.seqSlide) {
-		return curNo
-	}
+	return result
+}
 
-	// Search backward
-	for n := curNo; n >= 0; n-- {
-		if s.seqSlide[n].zid == zid {
-			return n
+func (s *slideSet) Slides(role string, offset int) *slideInfo {
+	var first, prev *slideInfo
+	number := offset
+	for _, sl := range s.seqSlide {
+		if !sl.HasSlideRole(role) {
+			continue
 		}
-	}
-
-	// Search forward
-	for n := curNo + 1; n < len(s.seqSlide); n++ {
-		if s.seqSlide[n].zid == zid {
-			return n
+		si := &slideInfo{
+			prev:   prev,
+			Slide:  sl,
+			Number: number,
+			next:   nil,
 		}
+		number++
+		if first == nil {
+			first = si
+		}
+		if prev != nil {
+			prev.next = si
+		}
+		prev = si
 	}
-
-	return -1 // Not found
+	return first
 }
 
 func (s *slideSet) HasImage(zid api.ZettelID) bool {
@@ -113,20 +182,20 @@ func (s *slideSet) Images() []api.ZettelID {
 
 func (s *slideSet) Title() zjson.Array { return getSlideTitle(s.meta) }
 func (s *slideSet) Subtitle() zjson.Array {
-	if subTitle := s.meta.GetArray("sub-title"); len(subTitle) > 0 {
+	if subTitle := s.meta.GetArray(KeySubTitle); len(subTitle) > 0 {
 		return subTitle
 	}
 	return nil
 }
 func (s *slideSet) Lang() string { return s.meta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
-	if author := s.meta.GetString("author"); author != "" {
+	if author := s.meta.GetString(KeyAuthor); author != "" {
 		return author
 	}
 	return cfg.author
 }
 func (s *slideSet) Copyright(cfg *slidesConfig) string {
-	if copyright := s.meta.GetString("copyright"); copyright != "" {
+	if copyright := s.meta.GetString(api.KeyCopyright); copyright != "" {
 		return copyright
 	}
 	return cfg.copyright
@@ -191,12 +260,12 @@ func (v *collectVisitor) Push(zid api.ZettelID) {
 	v.stack = append(v.stack, zid)
 }
 func (v *collectVisitor) Collect() {
-	slides := v.s.Slides()
-	for i := len(slides) - 1; i >= 0; i-- {
-		v.Push(slides[i].zid)
+	zids := v.s.SlideZids()
+	for i := len(zids) - 1; i >= 0; i-- {
+		v.Push(zids[i])
 	}
 	// log.Println("STAC", v.stack)
-	v.visited = make(map[api.ZettelID]*slide, len(slides))
+	v.visited = make(map[api.ZettelID]*slide, len(zids)+16)
 	for {
 		l := len(v.stack)
 		if l == 0 {
@@ -295,7 +364,7 @@ func (v *collectVisitor) visitImage(zid api.ZettelID, syntax string) {
 // Utility function to retrieve some slide/slideset metadata.
 
 func getSlideTitle(m zjson.Meta) zjson.Array {
-	if title := m.GetArray("slide-title"); len(title) > 0 {
+	if title := m.GetArray(KeySlideTitle); len(title) > 0 {
 		return title
 	}
 	return m.GetArray(api.KeyTitle)

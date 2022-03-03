@@ -116,7 +116,7 @@ type slidesConfig struct {
 func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	result := slidesConfig{
 		c:            c,
-		slideSetRole: "slideset",
+		slideSetRole: DefaultSlideSetRole,
 	}
 	m, err := c.GetMeta(ctx, configZettel)
 	if err != nil {
@@ -126,13 +126,13 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 		}
 		panic(err)
 	}
-	if ssr, ok := m["slideset-role"]; ok {
+	if ssr, ok := m[KeySlideSetRole]; ok {
 		result.slideSetRole = ssr
 	}
-	if author, ok := m["author"]; ok {
+	if author, ok := m[KeyAuthor]; ok {
 		result.author = author
 	}
-	if copyright, ok := m["copyright"]; ok {
+	if copyright, ok := m[api.KeyCopyright]; ok {
 		result.copyright = copyright
 	}
 	return result, nil
@@ -151,7 +151,7 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 		}
 		if strings.HasPrefix(path, "/sl/") {
 			if zid := api.ZettelID(path[4:]); zid.IsValid() {
-				processSlideSet(w, r, cfg, zid, renderSlideSet)
+				processSlideSet(w, r, cfg, zid, renderSlideShow)
 				return
 			}
 		}
@@ -199,7 +199,7 @@ func processContent(w http.ResponseWriter, r *http.Request, c *client.Client, zi
 	return content
 }
 
-func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesRole string) {
+func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesSetRole string) {
 	ctx := r.Context()
 	zjZettel, err := c.GetEvaluatedZJSON(ctx, zid, api.PartZettel, false)
 	if err != nil {
@@ -217,7 +217,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		return
 	}
 	role := m.GetString(api.KeyRole)
-	if role == slidesRole {
+	if role == slidesSetRole {
 		if slides := processSlideTOC(ctx, c, zid, m); slides != nil {
 			renderSlideTOC(w, slides)
 			return
@@ -263,14 +263,14 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<li><a href=\"/sl/%s#(1)\">%s</a></li>\n", slides.zid, htmlTitle)
 	}
-	for i, sl := range slides.Slides() {
+	for si := slides.Slides("", offset); si != nil; si = si.Next() {
 		var slideTitle string
-		if t := sl.Title(); len(t) > 0 {
+		if t := si.Slide.Title(); len(t) > 0 {
 			slideTitle = htmlEncodeInline(t)
 		} else {
-			slideTitle = string(sl.zid)
+			slideTitle = string(si.Slide.zid)
 		}
-		fmt.Fprintf(w, "<li><a href=\"/sl/%s#(%d)\">%s</a></li>\n", slides.zid, i+offset, slideTitle)
+		fmt.Fprintf(w, "<li><a href=\"/sl/%s#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
 	}
 	io.WriteString(w, "</ol>\n")
 	fmt.Fprintf(w, "<p><a href=\"/ho/%s\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid)
@@ -336,7 +336,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 
 type renderSlidesFunc func(http.ResponseWriter, *slidesConfig, *slideSet)
 
-func renderSlideSet(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
+func renderSlideShow(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
@@ -362,7 +362,8 @@ func renderSlideSet(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) 
 		}
 		io.WriteString(w, "\n</div>\n")
 	}
-	for slideNo, sl := range slides.Slides() {
+	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
+		sl := si.Slide
 		io.WriteString(w, `<div class="slide"`)
 		if slLang := sl.Lang(); slLang != "" && slLang != lang {
 			fmt.Fprintf(w, ` lang="%s"`, slLang)
@@ -373,8 +374,8 @@ func renderSlideSet(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) 
 		}
 
 		he := htmlNew(w, slides, 1, false, true)
-		he.SetCurrentSlide(slideNo, offset)
-		he.SetUnique(fmt.Sprintf("%d:", slideNo))
+		he.SetCurrentSlide(si)
+		he.SetUnique(fmt.Sprintf("%d:", si.Number))
 		zjson.WalkBlock(he, sl.Content(), 0)
 		he.visitEndnotes()
 		io.WriteString(w, "</div>\n")
@@ -399,7 +400,6 @@ func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 	offset := 1
 	if len(title) > 0 {
 		offset++
-		// TODO: add <a if="(slideno)"...> to allow internal references.
 		fmt.Fprintf(w, "<h1 id=\"(1)\">%s</h1>\n", htmlEncodeInline(title))
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
 			fmt.Fprintf(w, "<h2>%s</h2>\n", htmlEncodeInline(subtitle))
@@ -413,23 +413,27 @@ func renderHandout(w http.ResponseWriter, cfg *slidesConfig, slides *slideSet) {
 		io.WriteString(w, "<hr>\n")
 	}
 	he := htmlNew(w, slides, 1, true, false)
-	for slideNo, sl := range slides.Slides() {
-		if slideNo > 0 {
+	first := true
+	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
+		if first {
+			first = false
+		} else {
 			io.WriteString(w, "<hr>\n")
 		}
-		he.SetCurrentSlide(slideNo, offset)
-		htmlSlideNo := slideNo + offset
+
+		he.SetCurrentSlide(si)
+		sl := si.Slide
 		if title := sl.Title(); len(title) > 0 {
-			fmt.Fprintf(w, "<h1 id=\"(%d)\">%d. %s</h1>\n", htmlSlideNo, htmlSlideNo, htmlEncodeInline(title))
+			fmt.Fprintf(w, "<h1 id=\"(%d)\">%d. %s</h1>\n", si.Number, si.Number, htmlEncodeInline(title))
 		} else {
-			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", htmlSlideNo)
+			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", si.Number)
 		}
 		slLang := sl.Lang()
 		if slLang != "" && slLang != lang {
 			fmt.Fprintf(w, `<div lang="%s">`, slLang)
 		}
 
-		he.SetUnique(fmt.Sprintf("%d:", slideNo))
+		he.SetUnique(fmt.Sprintf("%d:", si.Number))
 		zjson.WalkBlock(he, sl.Content(), 0)
 		if slLang != "" && slLang != lang {
 			io.WriteString(w, "</div>")
@@ -515,5 +519,3 @@ var mycss = `/* Additional CSS to make it a little more beautiful */
 .zp-broken { text-decoration: line-through }
 .zp-header { list-style-type: none; margin: 0; padding: 0;}
 `
-
-// Everything below this line should move into client/zjson
