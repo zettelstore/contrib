@@ -6,13 +6,11 @@ Just enter `go build .` within the directory of this sub-project and you will fi
 ## Run instructions
     # presenter -h
     Usage of presenter:
-      -a    Zettelstore needs authentication
       -l string
             Listen address (default ":23120")
       [URL] URL of Zettelstore (default: "http://127.0.0.1:23123")
 
 * `URL` denotes the base URL of the Zettelstore, where the slide zettel are stored.
-* `-a` signals that the Zettelstore needs authentication. Username and password are requested at the command line where you started zettel presenter.
 * `-l` specifies the listen address, to allow to connect to zettel presenter with your browser. If you use the default value, you must point your browser to <http://127.0.0.1:23120>.
 
 ## Configuration

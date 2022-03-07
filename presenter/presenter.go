@@ -32,8 +32,20 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
+// Constants for minimum required version.
+const (
+	minMajor = 0
+	minMinor = 4
+)
+
+func hasVersion(major, minor int) bool {
+	if major < minMajor {
+		return false
+	}
+	return minor >= minMinor
+}
+
 func main() {
-	withAuth := flag.Bool("a", false, "Zettelstore needs authentication")
 	listenAddress := flag.String("l", ":23120", "Listen address")
 	flag.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -43,13 +55,15 @@ func main() {
 	}
 	flag.Parse()
 	ctx := context.Background()
-	c, err := getClient(ctx, flag.Arg(0), *withAuth)
+	c, err := getClient(ctx, flag.Arg(0))
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Unable to connect to zettelstore: %v\n", err)
+		os.Exit(2)
 	}
 	cfg, err := getConfig(ctx, c)
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Unable to retrieve presenter config: %v\n", err)
+		os.Exit(2)
 	}
 
 	// Fix an error in slidy.js
@@ -60,7 +74,7 @@ func main() {
 	http.ListenAndServe(*listenAddress, nil)
 }
 
-func getClient(ctx context.Context, base string, withAuth bool) (*client.Client, error) {
+func getClient(ctx context.Context, base string) (*client.Client, error) {
 	if base == "" {
 		base = "http://127.0.0.1:23123"
 	}
@@ -68,7 +82,7 @@ func getClient(ctx context.Context, base string, withAuth bool) (*client.Client,
 	if err != nil {
 		return nil, err
 	}
-	username, password := "", ""
+	withAuth, username, password := false, "", ""
 	if uinfo := u.User; uinfo != nil {
 		username = uinfo.Username()
 		if pw, ok := uinfo.Password(); ok {
@@ -77,6 +91,24 @@ func getClient(ctx context.Context, base string, withAuth bool) (*client.Client,
 		withAuth = true
 	}
 	c := client.NewClient(base)
+	ver, err := c.GetVersionJSON(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if ver.Major == -1 {
+		fmt.Fprintln(os.Stderr, "Unknown zettelstore version. Use it at your own risk,")
+	} else if !hasVersion(ver.Major, ver.Minor) {
+		return nil, fmt.Errorf("need at least zettelstore version %d.%d", minMajor, minMinor)
+	}
+
+	if !withAuth {
+		err = c.ExecuteCommand(ctx, api.CommandAuthenticated)
+		var cerr *client.Error
+		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusUnauthorized {
+			withAuth = true
+		}
+	}
+
 	if withAuth {
 		if username == "" {
 			io.WriteString(os.Stderr, "Username: ")
@@ -119,11 +151,12 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	}
 	m, err := c.GetMeta(ctx, configZettel)
 	if err != nil {
-		var cerr *client.Error
-		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
-			return result, nil
-		}
-		panic(err)
+		return slidesConfig{}, err
+		// var cerr *client.Error
+		// if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
+		// 	return result, nil
+		// }
+		// panic(err)
 	}
 	if ssr, ok := m[KeySlideSetRole]; ok {
 		result.slideSetRole = ssr
