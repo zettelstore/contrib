@@ -24,13 +24,14 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
-func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage, extZettelLinks bool) *htmlV {
+func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage, extZettelLinks, writeComment bool) *htmlV {
 	return &htmlV{
 		w:              w,
 		s:              s,
 		headingOffset:  headingOffset,
 		embedImage:     embedImage,
 		extZettelLinks: extZettelLinks,
+		writeComment:   writeComment,
 	}
 }
 
@@ -58,7 +59,13 @@ type htmlV struct {
 	visibleSpace   bool
 	embedImage     bool
 	extZettelLinks bool
+	writeComment   bool
 }
+
+// embedImage, extZettelLinks, writeComment
+// false, true, true for presentation
+// true, false, false for handout
+// false, false, false for manual (?)
 
 func (v *htmlV) Write(b []byte) (int, error)       { return v.w.Write(b) }
 func (v *htmlV) WriteString(s string) (int, error) { return io.WriteString(v.w, s) }
@@ -316,10 +323,12 @@ func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
 }
 
 func (v *htmlV) visitVerbatimComment(obj zjson.Object) (bool, zjson.CloseFunc) {
-	if s := zjson.GetString(obj, zjson.NameString); s != "" {
-		v.WriteString("<!--\n")
-		v.WriteString(s)
-		v.WriteString("\n-->")
+	if v.writeComment {
+		if s := zjson.GetString(obj, zjson.NameString); s != "" {
+			v.WriteString("<!--\n")
+			v.WriteString(s) // Escape "-->"
+			v.WriteString("\n-->")
+		}
 	}
 	return false, nil
 }
@@ -608,10 +617,12 @@ func (v *htmlV) visitLiteral(obj zjson.Object, tag string) (bool, zjson.CloseFun
 }
 
 func (v *htmlV) visitLiteralComment(obj zjson.Object) (bool, zjson.CloseFunc) {
-	if s := zjson.GetString(obj, zjson.NameString); s != "" {
-		v.WriteString("<!-- ")
-		v.WriteString(s)
-		v.WriteString(" -->")
+	if v.writeComment {
+		if s := zjson.GetString(obj, zjson.NameString); s != "" {
+			v.WriteString("<!-- ")
+			v.WriteString(s) // TODO: escape "-->"
+			v.WriteString(" -->")
+		}
 	}
 	return false, nil
 }

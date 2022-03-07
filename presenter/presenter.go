@@ -298,7 +298,7 @@ func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Clien
 		io.WriteString(w, "</ul>\n")
 	}
 
-	he := htmlNew(w, nil, 1, false, true)
+	he := htmlNew(w, nil, 1, false, true, true)
 	zjson.WalkBlock(he, content, 0)
 	he.visitEndnotes()
 
@@ -370,7 +370,7 @@ func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
 			fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
 		}
 
-		he := htmlNew(w, slides, 1, false, true)
+		he := htmlNew(w, slides, 1, false, true, true)
 		he.SetCurrentSlide(si)
 		he.SetUnique(fmt.Sprintf("%d:", si.Number))
 		zjson.WalkBlock(he, sl.Content(), 0)
@@ -412,7 +412,7 @@ func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 			fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(license))
 		}
 	}
-	he := htmlNew(w, slides, 1, true, false)
+	he := htmlNew(w, slides, 1, true, false, false)
 	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		sl := si.Slide
