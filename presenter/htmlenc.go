@@ -75,7 +75,7 @@ func (v *htmlV) visitEndnotes() {
 	if len(v.footnotes) == 0 {
 		return
 	}
-	v.WriteString("<ol class=\"zp-endnotes\">\n")
+	v.WriteString("<ol class=\"endnotes\">\n")
 	for i, fni := range v.footnotes {
 		n := i + 1
 		fmt.Fprintf(v, `<li value="%d" id="fn:%s%d" class="footnote">`, n, v.unique, n)
@@ -266,11 +266,11 @@ func (v *htmlV) visitRow(row zjson.Array, tag string) {
 		if cObj := zjson.MakeObject(cell); cObj != nil {
 			switch a := zjson.GetString(cObj, zjson.NameString); a {
 			case zjson.AlignLeft:
-				fmt.Fprintf(v, `<%s class="zp-left">`, tag)
+				fmt.Fprintf(v, `<%s class="left">`, tag)
 			case zjson.AlignCenter:
-				fmt.Fprintf(v, `<%s class="zp-center">`, tag)
+				fmt.Fprintf(v, `<%s class="center">`, tag)
 			case zjson.AlignRight:
-				fmt.Fprintf(v, `<%s class="zp-right">`, tag)
+				fmt.Fprintf(v, `<%s class="right">`, tag)
 			default:
 				fmt.Fprintf(v, "<%s>", tag)
 			}
@@ -441,7 +441,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 	switch q := zjson.GetString(obj, zjson.NameString2); q {
 	case zjson.RefStateExternal:
 		a = a.Clone().Set("href", ref).
-			AddClass("zp-external").
+			AddClass("external").
 			Set("target", "_blank").
 			Set("rel", "noopener noreferrer")
 		suffix = "&#10138;"
@@ -453,7 +453,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 			a = a.Clone().Set("href", fmt.Sprintf("#(%d)", si.Number))
 		} else if v.extZettelLinks {
 			// TODO: make link absolute
-			a = a.Clone().Set("href", "/"+ref).Set("target", "_blank")
+			a = a.Clone().Set("href", "/"+ref)
 			suffix = "&#10547;"
 		}
 	case zjson.RefStateBased, zjson.RefStateHosted:
@@ -462,7 +462,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 		// TODO: check for current slide to avoid self reference collisions
 		a = a.Clone().Set("href", ref)
 	case zjson.RefStateBroken:
-		a = a.Clone().AddClass("zp-broken")
+		a = a.Clone().AddClass("broken")
 	default:
 		log.Println("LINK", q, ref)
 	}
@@ -525,7 +525,9 @@ func (v *htmlV) writeImageTitle(obj zjson.Object) {
 		v.WriteString(`" title="`)
 		v.WriteEscaped(s)
 	}
-	v.WriteString(`">`)
+	v.Write([]byte{'"'})
+	v.visitAttributes(zjson.GetAttributes(obj))
+	v.Write([]byte{'>'})
 }
 
 func (v *htmlV) visitEmbedBLOB(obj zjson.Object) (bool, zjson.CloseFunc) {
