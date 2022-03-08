@@ -511,7 +511,7 @@ func (v *htmlV) visitEmbed(obj zjson.Object) (bool, zjson.CloseFunc) {
 		}
 	}
 	if zid.IsValid() {
-		src = "/z/" + src
+		src = "/" + src + ".content"
 	}
 	v.WriteString(`<img src="`)
 	v.WriteString(src)
@@ -526,7 +526,7 @@ func (v *htmlV) visitEmbedSVG(src string) {
 			return
 		}
 	}
-	fmt.Fprintf(v, "<figure><embed type=\"image/svg+xml\" src=\"%s\" /></figure>\n", "/svg/"+src)
+	fmt.Fprintf(v, "<figure><embed type=\"image/svg+xml\" src=\"%s\" /></figure>\n", "/"+src+".svg")
 }
 func (v *htmlV) writeImageTitle(obj zjson.Object) {
 	if title := zjson.GetArray(obj, zjson.NameInline); len(title) > 0 {

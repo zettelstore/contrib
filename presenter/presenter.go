@@ -152,11 +152,6 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	m, err := c.GetMeta(ctx, configZettel)
 	if err != nil {
 		return slidesConfig{}, err
-		// var cerr *client.Error
-		// if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
-		// 	return result, nil
-		// }
-		// panic(err)
 	}
 	if ssr, ok := m[KeySlideSetRole]; ok {
 		result.slideSetRole = ssr
@@ -170,42 +165,25 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/" {
-			processZettel(w, r, cfg.c, api.ZidDefaultHome, cfg.slideSetRole)
-			return
-		}
-		if zid := api.ZettelID(path[1:]); zid.IsValid() {
-			processZettel(w, r, cfg.c, zid, cfg.slideSetRole)
-			return
-		}
-		if strings.HasPrefix(path, "/sl/") {
-			if zid := api.ZettelID(path[4:]); zid.IsValid() {
+		if zid, suffix := retrieveZidAndSuffix(path); zid != api.InvalidZID {
+			switch suffix {
+			case "slide":
 				processSlideSet(w, r, cfg, zid, renderSlideShow)
-				return
-			}
-		}
-		if strings.HasPrefix(path, "/ho/") {
-			if zid := api.ZettelID(path[4:]); zid.IsValid() {
+			case "html":
 				processSlideSet(w, r, cfg, zid, renderHandout)
-				return
-			}
-		}
-		if strings.HasPrefix(path, "/z/") {
-			if zid := api.ZettelID(path[3:]); zid.IsValid() {
+			case "content":
 				if content := processContent(w, r, cfg.c, zid); len(content) > 0 {
 					w.Write(content)
 				}
-				return
-			}
-		}
-		if strings.HasPrefix(path, "/svg/") {
-			if zid := api.ZettelID(path[5:]); zid.IsValid() {
+			case "svg":
 				if content := processContent(w, r, cfg.c, zid); len(content) > 0 {
 					io.WriteString(w, `<?xml version='1.0' encoding='utf-8'?>`)
 					w.Write(content)
 				}
-				return
+			default:
+				processZettel(w, r, cfg.c, zid, cfg.slideSetRole)
 			}
+			return
 		}
 		if len(path) == 2 && ' ' < path[1] && path[1] <= 'z' {
 			processList(w, r, cfg.c)
@@ -213,6 +191,35 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 		}
 		http.Error(w, fmt.Sprintf("Unhandled request %q", r.URL), http.StatusNotFound)
 	}
+}
+
+func retrieveZidAndSuffix(path string) (api.ZettelID, string) {
+	if path == "" {
+		return api.InvalidZID, ""
+	}
+	if path == "/" {
+		return api.ZidDefaultHome, ""
+	}
+	if path[0] == '/' {
+		path = path[1:]
+	}
+	if len(path) < api.LengthZid {
+		return api.InvalidZID, ""
+	}
+	zid := api.ZettelID(path[:api.LengthZid])
+	if !zid.IsValid() {
+		return api.InvalidZID, ""
+	}
+	if len(path) == api.LengthZid {
+		return zid, ""
+	}
+	if path[api.LengthZid] != '.' {
+		return api.InvalidZID, ""
+	}
+	if suffix := path[api.LengthZid+1:]; suffix != "" {
+		return zid, suffix
+	}
+	return api.InvalidZID, ""
 }
 
 func processContent(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID) []byte {
@@ -290,7 +297,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	}
 	io.WriteString(w, "<ol>\n")
 	if len(title) > 0 {
-		fmt.Fprintf(w, "<li><a href=\"/sl/%s#(1)\">%s</a></li>\n", slides.zid, htmlTitle)
+		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(1)\">%s</a></li>\n", slides.zid, htmlTitle)
 	}
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		var slideTitle string
@@ -299,10 +306,10 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 		} else {
 			slideTitle = string(si.Slide.zid)
 		}
-		fmt.Fprintf(w, "<li><a href=\"/sl/%s#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
+		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
 	}
 	io.WriteString(w, "</ol>\n")
-	fmt.Fprintf(w, "<p><a href=\"/ho/%s\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid)
+	fmt.Fprintf(w, "<p><a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid)
 	writeHTMLFooter(w)
 }
 
