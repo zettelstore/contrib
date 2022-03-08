@@ -558,4 +558,13 @@ ol.endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; mar
 a.external {}
 a.broken { text-decoration: line-through }
 ul.header { list-style-type: none; margin: 0; padding: 0;}
+blockquote {
+  border-left: 0.5rem solid lightgray;
+  padding-left: 1rem;
+  margin-left: 1rem;
+  margin-right: 2rem;
+  font-style: italic;
+}
+blockquote p { margin-bottom: .5rem }
+blockquote cite { font-style: normal }
 `
