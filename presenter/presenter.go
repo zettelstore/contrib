@@ -89,8 +89,9 @@ func getClient(ctx context.Context, base string) (*client.Client, error) {
 			password = pw
 		}
 		withAuth = true
+		u.User = nil
 	}
-	c := client.NewClient(base)
+	c := client.NewClient(u)
 	ver, err := c.GetVersionJSON(ctx)
 	if err != nil {
 		return nil, err
@@ -260,7 +261,35 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		}
 	}
 
-	writeHTMLZettel(ctx, w, c, zid, m, content)
+	title := getSlideTitleZid(m, zid)
+	writeHTMLHeader(w, m.GetString(api.KeyLang))
+	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
+	writeHTMLBody(w)
+	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
+	hasHeader := false
+	for k, v := range m {
+		if v.Type != zjson.MetaURL {
+			continue
+		}
+		u := zjson.MakeString(v.Value)
+		if u == "" {
+			continue
+		}
+		if !hasHeader {
+			io.WriteString(w, "<ul class=\"header\">\n")
+			hasHeader = true
+		}
+		fmt.Fprintf(w, "<li>%s: <a href=\"%s\" target=\"_blank\">%s</a>&#10138;</li>", html.EscapeString(k), u, html.EscapeString(u))
+	}
+	if hasHeader {
+		io.WriteString(w, "</ul>\n")
+	}
+
+	he := htmlNew(w, nil, 1, false, true, true)
+	zjson.WalkBlock(he, content, 0)
+	he.visitEndnotes()
+	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
+	writeHTMLFooter(w)
 }
 
 func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, m zjson.Meta) *slideSet {
@@ -310,38 +339,6 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	}
 	io.WriteString(w, "</ol>\n")
 	fmt.Fprintf(w, "<p><a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid)
-	writeHTMLFooter(w)
-}
-
-func writeHTMLZettel(ctx context.Context, w http.ResponseWriter, c *client.Client, zid api.ZettelID, m zjson.Meta, content zjson.Array) {
-	title := getSlideTitleZid(m, zid)
-	writeHTMLHeader(w, m.GetString(api.KeyLang))
-	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
-	writeHTMLBody(w)
-	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
-	hasHeader := false
-	for k, v := range m {
-		if v.Type != zjson.MetaURL {
-			continue
-		}
-		u := zjson.MakeString(v.Value)
-		if u == "" {
-			continue
-		}
-		if !hasHeader {
-			io.WriteString(w, "<ul class=\"header\">\n")
-			hasHeader = true
-		}
-		fmt.Fprintf(w, "<li>%s: <a href=\"%s\" target=\"_blank\">%s</a>&#10138;</li>", html.EscapeString(k), u, html.EscapeString(u))
-	}
-	if hasHeader {
-		io.WriteString(w, "</ul>\n")
-	}
-
-	he := htmlNew(w, nil, 1, false, true, true)
-	zjson.WalkBlock(he, content, 0)
-	he.visitEndnotes()
-
 	writeHTMLFooter(w)
 }
 
@@ -414,6 +411,7 @@ func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
 		he.SetCurrentSlide(si)
 		he.SetUnique(fmt.Sprintf("%d:", si.Number))
 		zjson.WalkBlock(he, sl.Content(), 0)
+		fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", sl.zid)
 		he.visitEndnotes()
 		io.WriteString(w, "</div>\n")
 	}
