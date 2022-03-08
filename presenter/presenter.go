@@ -524,6 +524,9 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 		fmt.Fprintf(w, "<html lang=\"%s\">\n", lang)
 	}
 	io.WriteString(w, "<head>\n")
+	io.WriteString(w, "<meta charset=\"utf-8\">\n")
+	io.WriteString(w, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n")
+	io.WriteString(w, "<meta name=\"generator\" content=\"Zettel Presenter\">\n")
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", mycss)
 }
 
