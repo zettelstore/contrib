@@ -264,7 +264,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	title := getSlideTitleZid(m, zid)
 	writeHTMLHeader(w, m.GetString(api.KeyLang))
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
-	writeHTMLBody(w)
+	writeHTMLBody(w, true) // TODO: search for mermaid
 	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(title))
 	hasHeader := false
 	for k, v := range m {
@@ -289,7 +289,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	zjson.WalkBlock(he, content, 0)
 	he.visitEndnotes()
 	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
-	writeHTMLFooter(w)
+	writeHTMLFooter(w, true) // TODO: if mermaid
 }
 
 func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, m zjson.Meta) *slideSet {
@@ -317,7 +317,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	}
-	writeHTMLBody(w)
+	writeHTMLBody(w, false)
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlTitle)
 		if len(subtitle) > 0 {
@@ -339,7 +339,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	}
 	io.WriteString(w, "</ol>\n")
 	fmt.Fprintf(w, "<p><a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid)
-	writeHTMLFooter(w)
+	writeHTMLFooter(w, false)
 }
 
 func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID, render renderSlidesFunc) {
@@ -381,7 +381,7 @@ func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
 	writeMeta(w, "license", slides.License())
 	// writeMeta(w, "font-size-adjustment", "+1")
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", slidy2css)
-	writeHTMLBody(w)
+	writeHTMLBody(w, slides.hasMermaid)
 
 	offset := 1
 	if len(title) > 0 {
@@ -416,7 +416,7 @@ func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
 		io.WriteString(w, "</div>\n")
 	}
 	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)
-	writeHTMLFooter(w)
+	writeHTMLFooter(w, slides.hasMermaid)
 }
 
 func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
@@ -431,7 +431,7 @@ func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 	writeMeta(w, "copyright", copyright)
 	license := slides.License()
 	writeMeta(w, "license", license)
-	writeHTMLBody(w)
+	writeHTMLBody(w, slides.hasMermaid)
 
 	offset := 1
 	if len(title) > 0 {
@@ -471,7 +471,7 @@ func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 		}
 	}
 	he.visitEndnotes()
-	writeHTMLFooter(w)
+	writeHTMLFooter(w, slides.hasMermaid)
 }
 
 func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, getZettelZJSON getZettelZSONFunc) {
@@ -505,7 +505,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	}
 	writeHTMLHeader(w, "")
 	fmt.Fprintf(w, "<title>%s</title>\n", title)
-	writeHTMLBody(w)
+	writeHTMLBody(w, false)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(query))
 	io.WriteString(w, "<ul>\n")
 	for i, jm := range zl {
@@ -517,7 +517,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 		)
 	}
 	io.WriteString(w, "</ul>\n")
-	writeHTMLFooter(w)
+	writeHTMLFooter(w, false)
 }
 
 func writeHTMLHeader(w http.ResponseWriter, lang string) {
@@ -535,8 +535,18 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", mycss)
 }
 
-func writeHTMLBody(w http.ResponseWriter)   { io.WriteString(w, "</head>\n<body>\n") }
-func writeHTMLFooter(w http.ResponseWriter) { io.WriteString(w, "</body>\n</html>\n") }
+func writeHTMLBody(w http.ResponseWriter, hasMermaid bool) {
+	io.WriteString(w, "</head>\n<body>\n")
+	if hasMermaid {
+		io.WriteString(w, "<script>mermaid.initialize({startOnLoad:true});</script>\n")
+	}
+}
+func writeHTMLFooter(w http.ResponseWriter, hasMermaid bool) {
+	if hasMermaid {
+		fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", mermaid)
+	}
+	io.WriteString(w, "</body>\n</html>\n")
+}
 func writeMeta(w http.ResponseWriter, key, val string) {
 	if val != "" {
 		fmt.Fprintf(w, "<meta name=\"%s\" content=\"%s\" />\n", key, html.EscapeString(val))
@@ -548,6 +558,9 @@ var slidy2css string
 
 //go:embed slidy2/slidy.js
 var slidy2js string
+
+//go:embed mermaid/mermaid.min.js
+var mermaid string
 
 var mycss = `/* Additional CSS to make it a little more beautiful */
 td.left, th.left { text-align: left }

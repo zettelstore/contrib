@@ -97,12 +97,13 @@ type image struct {
 
 // slideSet is the sequence of slides shown.
 type slideSet struct {
-	zid       api.ZettelID
-	meta      zjson.Meta // Metadata of slideset
-	seqSlide  []*slide   // slide may occur more than once in seq, but should be stored only once
-	setSlide  map[api.ZettelID]*slide
-	setImage  map[api.ZettelID]image
-	completed bool
+	zid         api.ZettelID
+	meta        zjson.Meta // Metadata of slideset
+	seqSlide    []*slide   // slide may occur more than once in seq, but should be stored only once
+	setSlide    map[api.ZettelID]*slide
+	setImage    map[api.ZettelID]image
+	isCompleted bool
+	hasMermaid  bool
 }
 
 func newSlideSet(zid api.ZettelID, zjMeta zjson.Value) *slideSet {
@@ -236,12 +237,12 @@ func (s *slideSet) AdditionalSlide(zid api.ZettelID, m zjson.Meta, content zjson
 }
 
 func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON getZettelZSONFunc) {
-	if s.completed {
+	if s.isCompleted {
 		return
 	}
 	v := collectVisitor{getZettel: getZettel, getZettelZJSON: getZettelZJSON, s: s}
 	v.Collect()
-	s.completed = true
+	s.isCompleted = true
 }
 
 type collectVisitor struct {
@@ -287,6 +288,12 @@ func (v *collectVisitor) InlineArray(a zjson.Array, pos int) zjson.CloseFunc { r
 func (v *collectVisitor) ItemArray(a zjson.Array, pos int) zjson.CloseFunc   { return nil }
 func (v *collectVisitor) Unexpected(val zjson.Value, pos int, exp string)    {}
 func (v *collectVisitor) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
+	if t == zjson.TypeVerbatimCode {
+		a := zjson.GetAttributes(obj)
+		if cls := a.GetClasses(); len(cls) > 0 && cls[0] == "mermaid" {
+			v.s.hasMermaid = true
+		}
+	}
 	return true, nil
 }
 

@@ -307,18 +307,25 @@ func (v *htmlV) visitRegion(obj zjson.Object, tag string) (bool, zjson.CloseFunc
 }
 
 func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
-	saveVisible := v.visibleSpace
+	s := zjson.GetString(obj, zjson.NameString)
 	a := zjson.GetAttributes(obj)
-	if a.HasDefault() {
-		v.visibleSpace = true
-		a = a.Clone().RemoveDefault()
+	if cls := a.GetClasses(); len(cls) > 0 && cls[0] == "mermaid" {
+		v.WriteString("<div class=\"mermaid\">\n")
+		v.WriteEscaped(s)
+		v.WriteString("</div>")
+	} else {
+		saveVisible := v.visibleSpace
+		if a.HasDefault() {
+			v.visibleSpace = true
+			a = a.Clone().RemoveDefault()
+		}
+		v.WriteString("<pre><code")
+		v.visitAttributes(a)
+		v.Write([]byte{'>'})
+		v.WriteEscaped(s)
+		v.WriteString("</code></pre>")
+		v.visibleSpace = saveVisible
 	}
-	v.WriteString("<pre><code")
-	v.visitAttributes(a)
-	v.Write([]byte{'>'})
-	v.WriteEscaped(zjson.GetString(obj, zjson.NameString))
-	v.WriteString("</code></pre>")
-	v.visibleSpace = saveVisible
 	return false, nil
 }
 
@@ -597,8 +604,8 @@ func (v *htmlV) visitFormat(obj zjson.Object, tag string) (bool, zjson.CloseFunc
 
 func (v *htmlV) visitLiteral(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" {
-		oldVisible := v.visibleSpace
 		a := zjson.GetAttributes(obj)
+		oldVisible := v.visibleSpace
 		if a.HasDefault() {
 			v.visibleSpace = true
 			a = a.Clone().RemoveDefault()
