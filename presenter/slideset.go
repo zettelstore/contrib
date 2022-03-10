@@ -288,11 +288,8 @@ func (v *collectVisitor) InlineArray(a zjson.Array, pos int) zjson.CloseFunc { r
 func (v *collectVisitor) ItemArray(a zjson.Array, pos int) zjson.CloseFunc   { return nil }
 func (v *collectVisitor) Unexpected(val zjson.Value, pos int, exp string)    {}
 func (v *collectVisitor) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
-	if t == zjson.TypeVerbatimCode {
-		a := zjson.GetAttributes(obj)
-		if cls := a.GetClasses(); len(cls) > 0 && cls[0] == "mermaid" {
-			v.s.hasMermaid = true
-		}
+	if nodeHasMermaid(t, obj) {
+		v.s.hasMermaid = true
 	}
 	return true, nil
 }
@@ -362,6 +359,33 @@ func (v *collectVisitor) visitImage(zid api.ZettelID, syntax string) {
 		return
 	}
 	v.s.AddImage(zid, syntax, data)
+}
+
+type zettelVisitor struct {
+	hasMermaid bool
+}
+
+func (v *zettelVisitor) BlockArray(a zjson.Array, pos int) zjson.CloseFunc  { return nil }
+func (v *zettelVisitor) InlineArray(a zjson.Array, pos int) zjson.CloseFunc { return nil }
+func (v *zettelVisitor) ItemArray(a zjson.Array, pos int) zjson.CloseFunc   { return nil }
+func (v *zettelVisitor) Unexpected(val zjson.Value, pos int, exp string)    {}
+func (v *zettelVisitor) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
+	if nodeHasMermaid(t, obj) {
+		v.hasMermaid = true
+	}
+	return true, nil
+}
+
+func nodeHasMermaid(t string, obj zjson.Object) bool {
+	switch t {
+	case zjson.TypeVerbatimCode, zjson.TypeVerbatimEval:
+		return zjson.GetAttributes(obj).HasClass("mermaid")
+	}
+	return false
+}
+
+func (v *zettelVisitor) InlineObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
+	return true, nil
 }
 
 // Utility function to retrieve some slide/slideset metadata.

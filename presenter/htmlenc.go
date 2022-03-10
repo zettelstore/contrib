@@ -309,7 +309,7 @@ func (v *htmlV) visitRegion(obj zjson.Object, tag string) (bool, zjson.CloseFunc
 func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
 	s := zjson.GetString(obj, zjson.NameString)
 	a := zjson.GetAttributes(obj)
-	if cls := a.GetClasses(); len(cls) > 0 && cls[0] == "mermaid" {
+	if a.HasClass("mermaid") {
 		v.WriteString("<div class=\"mermaid\">\n")
 		v.WriteEscaped(s)
 		v.WriteString("</div>")
