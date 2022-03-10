@@ -56,10 +56,11 @@ func (sl *slide) HasSlideRole(sr string) bool {
 }
 
 type slideInfo struct {
-	prev   *slideInfo
-	Slide  *slide
-	Number int
-	next   *slideInfo
+	prev    *slideInfo
+	Slide   *slide
+	Number  int // number in document
+	SlideNo int // number in slide show, if any
+	next    *slideInfo
 }
 
 func (si *slideInfo) Next() *slideInfo {
@@ -138,24 +139,62 @@ func (s *slideSet) SlideZids() []api.ZettelID {
 }
 
 func (s *slideSet) Slides(role string, offset int) *slideInfo {
+	switch role {
+	case SlideRoleShow:
+		return s.slidesforShow(offset)
+	case SlideRoleHandout:
+		return s.slidesForHandout(offset)
+	}
+	panic(role)
+}
+func (s *slideSet) slidesforShow(offset int) *slideInfo {
 	var first, prev *slideInfo
-	number := offset
 	for _, sl := range s.seqSlide {
-		if !sl.HasSlideRole(role) {
+		if !sl.HasSlideRole(SlideRoleShow) {
 			continue
 		}
 		si := &slideInfo{
-			prev:   prev,
-			Slide:  sl,
-			Number: number,
-			next:   nil,
+			prev:  prev,
+			Slide: sl,
 		}
-		number++
 		if first == nil {
 			first = si
+			si.Number = offset
 		}
 		if prev != nil {
 			prev.next = si
+			si.Number = prev.Number + 1
+		}
+		si.SlideNo = si.Number
+		prev = si
+	}
+	return first
+}
+func (s *slideSet) slidesForHandout(offset int) *slideInfo {
+	var first, prev *slideInfo
+	slideNo := offset
+	for _, sl := range s.seqSlide {
+		if !sl.HasSlideRole(SlideRoleHandout) {
+			if sl.HasSlideRole(SlideRoleShow) {
+				slideNo++
+			}
+			continue
+		}
+		si := &slideInfo{
+			prev:  prev,
+			Slide: sl,
+		}
+		if sl.HasSlideRole(SlideRoleShow) {
+			si.SlideNo = slideNo
+			slideNo++
+		}
+		if first == nil {
+			first = si
+			si.Number = offset
+		}
+		if prev != nil {
+			prev.next = si
+			si.Number = prev.Number + 1
 		}
 		prev = si
 	}

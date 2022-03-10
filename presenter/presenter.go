@@ -458,7 +458,11 @@ func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 		he.SetCurrentSlide(si)
 		sl := si.Slide
 		if title := sl.Title(); len(title) > 0 {
-			fmt.Fprintf(w, "<h1 id=\"(%d)\">%d. %s</h1>\n", si.Number, si.Number, htmlEncodeInline(title))
+			if si.SlideNo > 0 {
+				fmt.Fprintf(w, "<h1 id=\"(%d)\">%s (F.%d)</h1>\n", si.Number, htmlEncodeInline(title), si.SlideNo)
+			} else {
+				fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s</h1>\n", si.Number, htmlEncodeInline(title))
+			}
 		} else {
 			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", si.Number)
 		}
