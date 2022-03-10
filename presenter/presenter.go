@@ -414,8 +414,8 @@ func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
 		he.SetCurrentSlide(si)
 		he.SetUnique(fmt.Sprintf("%d:", si.Number))
 		zjson.WalkBlock(he, sl.Content(), 0)
-		fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", sl.zid)
 		he.visitEndnotes()
+		fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", sl.zid)
 		io.WriteString(w, "</div>\n")
 	}
 	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)
