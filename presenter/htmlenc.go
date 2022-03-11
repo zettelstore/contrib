@@ -38,9 +38,16 @@ func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage, extZettelL
 func (v *htmlV) SetUnique(s string)            { v.unique = s }
 func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
 
-func htmlEncodeInline(in zjson.Array) string {
+func htmlEncodeInline(baseV *htmlV, in zjson.Array) string {
 	var buf bytes.Buffer
-	zjson.WalkInline(&htmlV{w: &buf}, in, 0)
+	v := &htmlV{w: &buf}
+	if baseV != nil {
+		v.footnotes = baseV.footnotes
+	}
+	zjson.WalkInline(v, in, 0)
+	if baseV != nil {
+		baseV.footnotes = v.footnotes
+	}
 	return buf.String()
 }
 
