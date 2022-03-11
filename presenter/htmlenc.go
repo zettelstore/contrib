@@ -133,6 +133,8 @@ func (v *htmlV) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.Cl
 		return v.visitRegion(obj, "blockquote")
 	case zjson.TypeVerbatimCode:
 		return v.visitVerbatimCode(obj)
+	case zjson.TypeVerbatimEval:
+		return v.visitVerbatimEval(obj)
 	case zjson.TypeVerbatimComment:
 		return v.visitVerbatimComment(obj)
 	case zjson.TypeVerbatimHTML:
@@ -309,24 +311,30 @@ func (v *htmlV) visitRegion(obj zjson.Object, tag string) (bool, zjson.CloseFunc
 func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
 	s := zjson.GetString(obj, zjson.NameString)
 	a := zjson.GetAttributes(obj)
-	if a.HasClass("mermaid") {
-		v.WriteString("<div class=\"mermaid\">\n")
-		v.WriteEscaped(s)
-		v.WriteString("</div>")
-	} else {
-		saveVisible := v.visibleSpace
-		if a.HasDefault() {
-			v.visibleSpace = true
-			a = a.Clone().RemoveDefault()
-		}
-		v.WriteString("<pre><code")
-		v.visitAttributes(a)
-		v.Write([]byte{'>'})
-		v.WriteEscaped(s)
-		v.WriteString("</code></pre>")
-		v.visibleSpace = saveVisible
+	saveVisible := v.visibleSpace
+	if a.HasDefault() {
+		v.visibleSpace = true
+		a = a.Clone().RemoveDefault()
 	}
+	v.WriteString("<pre><code")
+	v.visitAttributes(a)
+	v.Write([]byte{'>'})
+	v.WriteEscaped(s)
+	v.WriteString("</code></pre>")
+	v.visibleSpace = saveVisible
 	return false, nil
+}
+
+func (v *htmlV) visitVerbatimEval(obj zjson.Object) (bool, zjson.CloseFunc) {
+	s := zjson.GetString(obj, zjson.NameString)
+	a := zjson.GetAttributes(obj)
+	if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
+		v.WriteString("<div class=\"mermaid\">\n")
+		v.WriteString(s)
+		v.WriteString("</div>")
+		return false, nil
+	}
+	return v.visitVerbatimCode(obj)
 }
 
 func (v *htmlV) visitVerbatimComment(obj zjson.Object) (bool, zjson.CloseFunc) {

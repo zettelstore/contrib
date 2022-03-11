@@ -31,6 +31,7 @@ const (
 	DefaultSlideSetRole = "slideset"
 	SlideRoleHandout    = "handout" // TODO: Includes manual?
 	SlideRoleShow       = "show"
+	SyntaxMermaid       = "mermaid"
 )
 
 // Slide is one slide that is shown one or more times.
@@ -416,9 +417,9 @@ func (v *zettelVisitor) BlockObject(t string, obj zjson.Object, pos int) (bool, 
 }
 
 func nodeHasMermaid(t string, obj zjson.Object) bool {
-	switch t {
-	case zjson.TypeVerbatimCode, zjson.TypeVerbatimEval:
-		return zjson.GetAttributes(obj).HasClass("mermaid")
+	if t == zjson.TypeVerbatimEval {
+		syntax, found := zjson.GetAttributes(obj).Get("")
+		return found && syntax == SyntaxMermaid
 	}
 	return false
 }
