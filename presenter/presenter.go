@@ -268,7 +268,8 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	writeHTMLHeader(w, m.GetString(api.KeyLang))
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	writeHTMLBody(w)
-	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(nil, title))
+	he := htmlNew(w, nil, 1, false, true, true)
+	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
 	hasHeader := false
 	for k, v := range m {
 		if v.Type != zjson.MetaURL {
@@ -288,7 +289,6 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		io.WriteString(w, "</ul>\n")
 	}
 
-	he := htmlNew(w, nil, 1, false, true, true)
 	zjson.WalkBlock(he, content, 0)
 	he.visitEndnotes()
 	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
