@@ -29,6 +29,7 @@ func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage, extZettelL
 		w:              w,
 		s:              s,
 		headingOffset:  headingOffset,
+		writeFootnote:  true,
 		embedImage:     embedImage,
 		extZettelLinks: extZettelLinks,
 		writeComment:   writeComment,
@@ -42,6 +43,7 @@ func htmlEncodeInline(baseV *htmlV, in zjson.Array) string {
 	var buf bytes.Buffer
 	v := &htmlV{w: &buf}
 	if baseV != nil {
+		v.writeFootnote = baseV.writeFootnote
 		v.footnotes = baseV.footnotes
 	}
 	zjson.WalkInline(v, in, 0)
@@ -63,6 +65,7 @@ type htmlV struct {
 	headingOffset  int
 	unique         string
 	footnotes      []footnodeInfo
+	writeFootnote  bool
 	visibleSpace   bool
 	embedImage     bool
 	extZettelLinks bool
@@ -599,12 +602,14 @@ func (v *htmlV) visitMark(obj zjson.Object) (bool, zjson.CloseFunc) {
 }
 
 func (v *htmlV) visitFootnote(obj zjson.Object) (bool, zjson.CloseFunc) {
-	if fn := zjson.GetArray(obj, zjson.NameInline); fn != nil {
-		v.footnotes = append(v.footnotes, footnodeInfo{fn, zjson.GetAttributes(obj)})
-		n := len(v.footnotes)
-		fmt.Fprintf(v,
-			`<sup id="fnref:%s%d"><a href="#fn:%s%d">%d</a></sup>`,
-			v.unique, n, v.unique, n, n)
+	if v.writeFootnote {
+		if fn := zjson.GetArray(obj, zjson.NameInline); fn != nil {
+			v.footnotes = append(v.footnotes, footnodeInfo{fn, zjson.GetAttributes(obj)})
+			n := len(v.footnotes)
+			fmt.Fprintf(v,
+				`<sup id="fnref:%s%d"><a href="#fn:%s%d">%d</a></sup>`,
+				v.unique, n, v.unique, n, n)
+		}
 	}
 	return false, nil
 }
