@@ -13,12 +13,13 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"errors"
 	"flag"
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -70,6 +71,7 @@ func main() {
 	slidy2js = strings.ReplaceAll(slidy2js, "</script>", "<\\/script>")
 
 	http.HandleFunc("/", makeHandler(&cfg))
+	http.Handle("/revealjs/", http.FileServer(http.FS(revealjs)))
 	fmt.Println("Listening:", *listenAddress)
 	http.ListenAndServe(*listenAddress, nil)
 }
@@ -168,8 +170,10 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 		path := r.URL.Path
 		if zid, suffix := retrieveZidAndSuffix(path); zid != api.InvalidZID {
 			switch suffix {
-			case "slide":
-				processSlideSet(w, r, cfg, zid, renderSlideShow)
+			case "slidy", "slide":
+				processSlideSet(w, r, cfg, zid, renderSlidyShow)
+			case "reveal":
+				processSlideSet(w, r, cfg, zid, renderRevealShow)
 			case "html":
 				processSlideSet(w, r, cfg, zid, renderHandout)
 			case "content":
@@ -190,6 +194,7 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 			processList(w, r, cfg.c)
 			return
 		}
+		log.Println("NOTF", path)
 		http.Error(w, fmt.Sprintf("Unhandled request %q", r.URL), http.StatusNotFound)
 	}
 }
@@ -341,7 +346,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
 	}
 	io.WriteString(w, "</ol>\n")
-	fmt.Fprintf(w, "<p><a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid)
+	fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid)
 	writeHTMLFooter(w, false)
 }
 
@@ -372,7 +377,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 
 type renderSlidesFunc func(http.ResponseWriter, *slideSet, string)
 
-func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
+func renderSlidyShow(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
@@ -419,6 +424,66 @@ func renderSlideShow(w http.ResponseWriter, slides *slideSet, author string) {
 		io.WriteString(w, "</div>\n")
 	}
 	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)
+	writeHTMLFooter(w, slides.hasMermaid)
+}
+
+func renderRevealShow(w http.ResponseWriter, slides *slideSet, author string) {
+	lang := slides.Lang()
+	writeHTMLHeader(w, lang)
+	title := slides.Title()
+	if len(title) > 0 {
+		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
+	}
+
+	io.WriteString(w, "<link rel=\"stylesheet\" href=\"revealjs/reveal.css\">\n")
+	io.WriteString(w, "<link rel=\"stylesheet\" href=\"revealjs/theme/white.css\">\n")
+	writeHTMLBody(w)
+
+	io.WriteString(w, "<div class=\"reveal\">\n")
+	io.WriteString(w, "<div class=\"slides\">\n")
+	offset := 1
+	if len(title) > 0 {
+		offset++
+		io.WriteString(w, "<section>\n")
+		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", htmlEncodeInline(nil, title))
+		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
+			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", htmlEncodeInline(nil, subtitle))
+		}
+		if author != "" {
+			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
+		}
+		io.WriteString(w, "\n</section>\n")
+	}
+	he := htmlNew(w, slides, 1, false, true, true)
+	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
+		sl := si.Slide
+		fmt.Fprintf(w, `<section id="(%d)"`, si.SlideNo)
+		if slLang := sl.Lang(); slLang != "" && slLang != lang {
+			fmt.Fprintf(w, ` lang="%s"`, slLang)
+		}
+		io.WriteString(w, ">\n")
+		if title := sl.Title(); len(title) > 0 {
+			fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
+		}
+
+		he.SetCurrentSlide(si)
+		he.SetUnique(fmt.Sprintf("%d:", si.Number))
+		zjson.WalkBlock(he, sl.Content(), 0)
+		he.visitEndnotes()
+		fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", sl.zid)
+		io.WriteString(w, "</section>\n")
+	}
+	io.WriteString(w, "</div>\n</div>\n")
+	io.WriteString(w, `<script src="revealjs/reveal.js"></script>
+<script>Reveal.initialize({
+width: 1920,
+height: 1024,
+center: true,
+slideNumber: "c",
+hash: true,
+showNotes: true
+});</script>
+`)
 	writeHTMLFooter(w, slides.hasMermaid)
 }
 
@@ -537,7 +602,7 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 	}
 	io.WriteString(w, "<head>\n")
 	io.WriteString(w, "<meta charset=\"utf-8\">\n")
-	io.WriteString(w, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n")
+	io.WriteString(w, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n")
 	io.WriteString(w, "<meta name=\"generator\" content=\"Zettel Presenter\">\n")
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", mycss)
 }
@@ -564,6 +629,9 @@ var slidy2js string
 
 //go:embed mermaid/mermaid.min.js
 var mermaid string
+
+//go:embed revealjs
+var revealjs embed.FS
 
 var mycss = `/* Additional CSS to make it a little more beautiful */
 td.left, th.left { text-align: left }
