@@ -456,22 +456,31 @@ func renderRevealShow(w http.ResponseWriter, slides *slideSet, author string) {
 	}
 	he := htmlNew(w, slides, 1, false, true, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
-		sl := si.Slide
-		fmt.Fprintf(w, `<section id="(%d)"`, si.SlideNo)
-		if slLang := sl.Lang(); slLang != "" && slLang != lang {
+		main := si.Child()
+		sub := main.Next()
+		if sub != nil {
+			io.WriteString(w, "<section>\n")
+		}
+		fmt.Fprintf(w, `<section id="(%d)"`, main.SlideNo)
+		if slLang := main.Slide.Lang(); slLang != "" && slLang != lang {
 			fmt.Fprintf(w, ` lang="%s"`, slLang)
 		}
 		io.WriteString(w, ">\n")
-		if title := sl.Title(); len(title) > 0 {
-			fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
-		}
-
-		he.SetCurrentSlide(si)
-		he.SetUnique(fmt.Sprintf("%d:", si.Number))
-		zjson.WalkBlock(he, sl.Content(), 0)
-		he.visitEndnotes()
-		fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", sl.zid)
+		renderRevealSlide(w, he, main)
 		io.WriteString(w, "</section>\n")
+
+		if sub != nil {
+			for {
+				fmt.Fprintf(w, "<section id=\"(%d)\">\n", sub.SlideNo)
+				renderRevealSlide(w, he, sub)
+				io.WriteString(w, "</section>\n")
+				sub = sub.Next()
+				if sub == nil {
+					break
+				}
+			}
+			io.WriteString(w, "</section>\n")
+		}
 	}
 	io.WriteString(w, "</div>\n</div>\n")
 	io.WriteString(w, `<script src="revealjs/reveal.js"></script>
@@ -485,6 +494,17 @@ showNotes: true
 });</script>
 `)
 	writeHTMLFooter(w, slides.hasMermaid)
+}
+
+func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
+	if title := si.Slide.Title(); len(title) > 0 {
+		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
+	}
+	he.SetCurrentSlide(si)
+	he.SetUnique(fmt.Sprintf("%d:", si.Number))
+	zjson.WalkBlock(he, si.Slide.Content(), 0)
+	he.visitEndnotes()
+	fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
 }
 
 func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {

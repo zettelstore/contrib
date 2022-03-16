@@ -484,7 +484,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 	case zjson.RefStateZettel:
 		zid := api.ZettelID(ref)
 		// TODO: check for fragment
-		if si := v.curSlide.GetSlide(zid); si != nil {
+		if si := v.curSlide.FindSlide(zid); si != nil {
 			// TODO: process and add fragment
 			a = a.Clone().Set("href", fmt.Sprintf("#(%d)", si.Number))
 		} else if v.extZettelLinks {

@@ -12,6 +12,7 @@ package main
 
 import (
 	"log"
+	"strconv"
 
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/zjson"
@@ -52,6 +53,15 @@ func newSlide(zid api.ZettelID, meta zjson.Meta, content zjson.Array) *slide {
 		content: content,
 	}
 }
+func (sl *slide) MakeChild(title, content zjson.Array) *slide {
+	return &slide{
+		zid:     sl.zid,
+		title:   title,
+		lang:    sl.lang,
+		role:    sl.role,
+		content: content,
+	}
+}
 
 func (sl *slide) Title() zjson.Array   { return sl.title }
 func (sl *slide) Lang() string         { return sl.lang }
@@ -69,11 +79,13 @@ func (sl *slide) HasSlideRole(sr string) bool {
 }
 
 type slideInfo struct {
-	prev    *slideInfo
-	Slide   *slide
-	Number  int // number in document
-	SlideNo int // number in slide show, if any
-	next    *slideInfo
+	prev     *slideInfo
+	Slide    *slide
+	Number   int // number in document
+	SlideNo  int // number in slide show, if any
+	oldest   *slideInfo
+	youngest *slideInfo
+	next     *slideInfo
 }
 
 func (si *slideInfo) Next() *slideInfo {
@@ -82,8 +94,68 @@ func (si *slideInfo) Next() *slideInfo {
 	}
 	return si.next
 }
+func (si *slideInfo) Child() *slideInfo {
+	if si == nil {
+		return si
+	}
+	return si.oldest
+}
 
-func (si *slideInfo) GetSlide(zid api.ZettelID) *slideInfo {
+func (si *slideInfo) SplitChildren() {
+	var oldest, youngest *slideInfo
+	title := si.Slide.Title()
+	var content zjson.Array
+	for _, bn := range si.Slide.content {
+		obj := zjson.MakeObject(bn)
+		ti, found := obj[zjson.NameType]
+		if !found {
+			return
+		}
+		if zjson.MakeString(ti) != zjson.TypeHeading {
+			content = append(content, bn)
+			continue
+		}
+		if level, err := strconv.Atoi(zjson.GetNumber(obj)); err != nil || level > 1 {
+			content = append(content, bn)
+			continue
+		}
+		nextTitle := zjson.GetArray(obj, zjson.NameInline)
+		if len(nextTitle) == 0 {
+			content = append(content, bn)
+			continue
+		}
+		slInfo := &slideInfo{
+			prev:  youngest,
+			Slide: si.Slide.MakeChild(title, content),
+		}
+		content = nil
+		if oldest == nil {
+			oldest = slInfo
+		}
+		if youngest != nil {
+			youngest.next = slInfo
+		}
+		youngest = slInfo
+		title = nextTitle
+	}
+	if oldest == nil {
+		oldest = &slideInfo{Slide: si.Slide.MakeChild(title, content)}
+		youngest = oldest
+	} else {
+		slInfo := &slideInfo{
+			prev:  youngest,
+			Slide: si.Slide.MakeChild(title, content),
+		}
+		if youngest != nil {
+			youngest.next = slInfo
+		}
+		youngest = slInfo
+	}
+	si.oldest = oldest
+	si.youngest = youngest
+}
+
+func (si *slideInfo) FindSlide(zid api.ZettelID) *slideInfo {
 	if si == nil {
 		return nil
 	}
@@ -162,6 +234,7 @@ func (s *slideSet) Slides(role string, offset int) *slideInfo {
 }
 func (s *slideSet) slidesforShow(offset int) *slideInfo {
 	var first, prev *slideInfo
+	slideNo := offset
 	for _, sl := range s.seqSlide {
 		if !sl.HasSlideRole(SlideRoleShow) {
 			continue
@@ -172,14 +245,24 @@ func (s *slideSet) slidesforShow(offset int) *slideInfo {
 		}
 		if first == nil {
 			first = si
-			si.Number = offset
 		}
 		if prev != nil {
 			prev.next = si
-			si.Number = prev.Number + 1
 		}
-		si.SlideNo = si.Number
+		si.SlideNo = slideNo
+		si.Number = slideNo
 		prev = si
+
+		si.SplitChildren()
+		main := si.Child()
+		main.SlideNo = slideNo
+		main.Number = slideNo
+		for sub := main.Next(); sub != nil; sub = sub.Next() {
+			slideNo++
+			sub.SlideNo = slideNo
+			sub.Number = slideNo
+		}
+		slideNo++
 	}
 	return first
 }
