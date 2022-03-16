@@ -371,12 +371,14 @@ func (v *htmlV) visitBLOB(obj zjson.Object) (bool, zjson.CloseFunc) {
 func (v *htmlV) writeSVG(obj zjson.Object) {
 	if svg := zjson.GetString(obj, zjson.NameString3); svg != "" {
 		// TODO: add inline text / title as description
+		v.WriteString("<p>")
 		v.WriteString(svg)
+		v.WriteString("</p>")
 	}
 }
 func (v *htmlV) writeDataImage(obj zjson.Object, syntax, title string) {
 	if b := zjson.GetString(obj, zjson.NameBinary); b != "" {
-		v.WriteString(`<img src="data:image/`)
+		v.WriteString(`<p><img src="data:image/`)
 		v.WriteString(syntax)
 		v.WriteString(";base64,")
 		v.WriteString(b)
@@ -384,7 +386,7 @@ func (v *htmlV) writeDataImage(obj zjson.Object, syntax, title string) {
 			v.WriteString(`" title="`)
 			v.WriteAttribute(title)
 		}
-		v.WriteString(`">`)
+		v.WriteString(`"></p>`)
 	}
 }
 
