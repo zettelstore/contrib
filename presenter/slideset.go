@@ -37,19 +37,31 @@ const (
 // Slide is one slide that is shown one or more times.
 type slide struct {
 	zid     api.ZettelID // The zettel identifier
-	meta    zjson.Meta   // Metadata of this slide
-	content zjson.Array  // Zettel / slide content
+	title   zjson.Array
+	lang    string
+	role    string
+	content zjson.Array // Zettel / slide content
 }
 
-func (sl *slide) Title() zjson.Array   { return getSlideTitle(sl.meta) }
-func (sl *slide) Lang() string         { return sl.meta.GetString(api.KeyLang) }
+func newSlide(zid api.ZettelID, meta zjson.Meta, content zjson.Array) *slide {
+	return &slide{
+		zid:     zid,
+		title:   getSlideTitle(meta),
+		lang:    meta.GetString(api.KeyLang),
+		role:    meta.GetString(KeySlideRole),
+		content: content,
+	}
+}
+
+func (sl *slide) Title() zjson.Array   { return sl.title }
+func (sl *slide) Lang() string         { return sl.lang }
 func (sl *slide) Content() zjson.Array { return sl.content }
 
 func (sl *slide) HasSlideRole(sr string) bool {
 	if sr == "" {
 		return true
 	}
-	s := sl.meta.GetString(KeySlideRole)
+	s := sl.role
 	if s == "" {
 		return true
 	}
@@ -256,22 +268,14 @@ func (s *slideSet) AddSlide(zid api.ZettelID, getZettel getZettelZSONFunc) {
 		// TODO: Add artificial slide with error message
 		return
 	}
-	sl := &slide{
-		zid:     zid,
-		meta:    slMeta,
-		content: slContent,
-	}
+	sl := newSlide(zid, slMeta, slContent)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
 func (s *slideSet) AdditionalSlide(zid api.ZettelID, m zjson.Meta, content zjson.Array) {
 	// TODO: if first, add slide with text "additional content"
-	sl := &slide{
-		zid:     zid,
-		meta:    m,
-		content: content,
-	}
+	sl := newSlide(zid, m, content)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
