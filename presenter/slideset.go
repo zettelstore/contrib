@@ -96,9 +96,15 @@ func (si *slideInfo) Next() *slideInfo {
 }
 func (si *slideInfo) Child() *slideInfo {
 	if si == nil {
-		return si
+		return nil
 	}
 	return si.oldest
+}
+func (si *slideInfo) LastChild() *slideInfo {
+	if si == nil {
+		return nil
+	}
+	return si.youngest
 }
 
 func (si *slideInfo) SplitChildren() {
@@ -268,33 +274,43 @@ func (s *slideSet) slidesforShow(offset int) *slideInfo {
 }
 func (s *slideSet) slidesForHandout(offset int) *slideInfo {
 	var first, prev *slideInfo
-	slideNo := offset
+	number, slideNo := offset, offset
 	for _, sl := range s.seqSlide {
-		if !sl.HasSlideRole(SlideRoleHandout) {
-			if sl.HasSlideRole(SlideRoleShow) {
-				slideNo++
-			}
-			continue
-		}
 		si := &slideInfo{
 			prev:  prev,
 			Slide: sl,
 		}
+		if !sl.HasSlideRole(SlideRoleHandout) {
+			if sl.HasSlideRole(SlideRoleShow) {
+				s.addChildrenForHandout(si, &slideNo)
+			}
+			continue
+		}
 		if sl.HasSlideRole(SlideRoleShow) {
 			si.SlideNo = slideNo
-			slideNo++
+			s.addChildrenForHandout(si, &slideNo)
 		}
 		if first == nil {
 			first = si
-			si.Number = offset
 		}
 		if prev != nil {
 			prev.next = si
-			si.Number = prev.Number + 1
 		}
+		si.Number = number
 		prev = si
+		number++
 	}
 	return first
+}
+func (*slideSet) addChildrenForHandout(si *slideInfo, slideNo *int) {
+	si.SplitChildren()
+	main := si.Child()
+	main.SlideNo = *slideNo
+	for sub := main.Next(); sub != nil; sub = sub.Next() {
+		*slideNo++
+		sub.SlideNo = *slideNo
+	}
+	*slideNo++
 }
 
 func (s *slideSet) HasImage(zid api.ZettelID) bool {

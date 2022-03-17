@@ -456,6 +456,7 @@ func renderRevealShow(w http.ResponseWriter, slides *slideSet, author string) {
 	}
 	he := htmlNew(w, slides, 1, false, true, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
+		he.SetCurrentSlide(si)
 		main := si.Child()
 		sub := main.Next()
 		if sub != nil {
@@ -500,7 +501,6 @@ func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
 	if title := si.Slide.Title(); len(title) > 0 {
 		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
 	}
-	he.SetCurrentSlide(si)
 	he.SetUnique(fmt.Sprintf("%d:", si.Number))
 	zjson.WalkBlock(he, si.Slide.Content(), 0)
 	he.visitEndnotes()
@@ -528,26 +528,16 @@ func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
 			fmt.Fprintf(w, "<h2>%s</h2>\n", htmlEncodeInline(nil, subtitle))
 		}
-		if author != "" {
-			fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(author))
-		}
-		if copyright != "" {
-			fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(copyright))
-		}
-		if license != "" {
-			fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(license))
-		}
+		writeEscapedString(w, author)
+		writeEscapedString(w, copyright)
+		writeEscapedString(w, license)
 	}
 	he := htmlNew(w, slides, 1, true, false, false)
 	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		sl := si.Slide
 		if title := sl.Title(); len(title) > 0 {
-			if si.SlideNo > 0 {
-				fmt.Fprintf(w, "<h1 id=\"(%d)\">%s <small>(S.%d)</small></h1>\n", si.Number, htmlEncodeInline(he, title), si.SlideNo)
-			} else {
-				fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s</h1>\n", si.Number, htmlEncodeInline(he, title))
-			}
+			fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s%s</h1>\n", si.Number, htmlEncodeInline(he, title), slideNoRange(si))
 		} else {
 			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", si.Number)
 		}
@@ -564,6 +554,23 @@ func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 	}
 	he.visitEndnotes()
 	writeHTMLFooter(w, slides.hasMermaid)
+}
+
+func writeEscapedString(w http.ResponseWriter, s string) {
+	if s != "" {
+		fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(s))
+	}
+}
+
+func slideNoRange(si *slideInfo) string {
+	if fromSlideNo := si.SlideNo; fromSlideNo > 0 {
+		toSlideNo := si.LastChild().SlideNo
+		if fromSlideNo >= toSlideNo {
+			return fmt.Sprintf(" <small>(S.%d)</small>", fromSlideNo)
+		}
+		return fmt.Sprintf(" <small>(S.%d&ndash;%d)</small>", fromSlideNo, toSlideNo)
+	}
+	return ""
 }
 
 func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, getZettelZJSON getZettelZSONFunc) {
@@ -671,4 +678,6 @@ blockquote {
 }
 blockquote p { margin-bottom: .5rem }
 blockquote cite { font-style: normal }
+div.container { display: flex }
+div.col { flex: 1 }
 `
