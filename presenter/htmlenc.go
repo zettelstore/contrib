@@ -327,12 +327,19 @@ func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
 		a = a.Clone().RemoveDefault()
 	}
 	v.WriteString("<pre><code")
-	v.visitAttributes(a)
+	v.visitAttributes(setProgLang(a))
 	v.Write([]byte{'>'})
 	v.WriteEscaped(s)
 	v.WriteString("</code></pre>")
 	v.visibleSpace = saveVisible
 	return false, nil
+}
+
+func setProgLang(a zjson.Attributes) zjson.Attributes {
+	if val, found := a.Get(""); found {
+		a = a.Clone().AddClass("language-" + val).Remove("")
+	}
+	return a
 }
 
 func (v *htmlV) visitVerbatimEval(obj zjson.Object) (bool, zjson.CloseFunc) {
