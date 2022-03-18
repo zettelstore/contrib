@@ -183,7 +183,7 @@ func (v *htmlV) visitHeading(obj zjson.Object) (bool, zjson.CloseFunc) {
 func (v *htmlV) visitList(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	fmt.Fprintf(v, "<%s>\n", tag)
 	return true, func() {
-		fmt.Fprintf(v, "</%s>\n", tag)
+		fmt.Fprintf(v, "</%s>", tag)
 	}
 }
 
@@ -313,13 +313,13 @@ func (v *htmlV) visitBlock(obj zjson.Object) (bool, zjson.CloseFunc) {
 				return false, nil
 			}
 			v.WriteString("<aside class=\"notes\">\n")
-			return true, func() { v.WriteString("</aside>\n") }
+			return true, func() { v.WriteString("\n</aside>") }
 		case "handout":
 			if ren := v.ren; ren == nil || ren.Role() != SlideRoleHandout {
 				return false, nil
 			}
 			v.WriteString("<aside class=\"handout\">\n")
-			return true, func() { v.WriteString("</aside>\n") }
+			return true, func() { v.WriteString("\n</aside>") }
 		case "both":
 			ren := v.ren
 			if ren == nil {
@@ -333,7 +333,7 @@ func (v *htmlV) visitBlock(obj zjson.Object) (bool, zjson.CloseFunc) {
 			default:
 				return false, nil
 			}
-			return true, func() { v.WriteString("</aside>\n") }
+			return true, func() { v.WriteString("\n</aside>") }
 		case "cols", "col":
 			zjson.SetAttributes(obj, a.Remove("").AddClass(val))
 		}

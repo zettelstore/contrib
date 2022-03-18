@@ -387,9 +387,7 @@ func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author 
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
-	if len(title) > 0 {
-		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
-	}
+	writeTitle(w, title)
 	writeMeta(w, "author", author)
 	writeMeta(w, "copyright", slides.Copyright())
 	writeMeta(w, "license", slides.License())
@@ -438,28 +436,26 @@ func (*revealRenderer) Role() string { return SlideRoleShow }
 func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
-	title := slides.Title()
-	if len(title) > 0 {
-		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
-	}
+	io.WriteString(w, "<style type=\"text/css\">div.cols { display: flex } div.col { flex: 1 }</style>\n")
 
-	io.WriteString(w, "<link rel=\"stylesheet\" href=\"revealjs/reveal.css\">\n")
-	io.WriteString(w, "<link rel=\"stylesheet\" href=\"revealjs/theme/white.css\">\n")
-	io.WriteString(w, "<link rel=\"stylesheet\" href=\"revealjs/plugin/highlight/default.css\">\n")
+	title := slides.Title()
+	writeTitle(w, title)
+	io.WriteString(w, `<link rel="stylesheet" href="revealjs/reveal.css">
+<link rel="stylesheet" href="revealjs/theme/white.css">
+<link rel="stylesheet" href="revealjs/plugin/highlight/default.css">
+`)
 	writeHTMLBody(w)
 
-	io.WriteString(w, "<div class=\"reveal\">\n")
-	io.WriteString(w, "<div class=\"slides\">\n")
+	io.WriteString(w, "<div class=\"reveal\">\n<div class=\"slides\">\n")
 	offset := 1
 	if len(title) > 0 {
 		offset++
-		io.WriteString(w, "<section>\n")
-		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", htmlEncodeInline(nil, title))
+		fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", htmlEncodeInline(nil, title))
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
-			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", htmlEncodeInline(nil, subtitle))
+			fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", htmlEncodeInline(nil, subtitle))
 		}
 		if author != "" {
-			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
+			fmt.Fprintf(w, "\n<p class=\"author\">%s</p>", html.EscapeString(author))
 		}
 		io.WriteString(w, "\n</section>\n")
 	}
@@ -492,31 +488,32 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 			io.WriteString(w, "</section>\n")
 		}
 	}
-	io.WriteString(w, "</div>\n</div>\n")
-	io.WriteString(w, `<script src="revealjs/plugin/highlight/highlight.js"></script>
+	io.WriteString(w, `</div>
+</div>
+<script src="revealjs/plugin/highlight/highlight.js"></script>
 <script src="revealjs/plugin/notes/notes.js"></script>
 <script src="revealjs/reveal.js"></script>
-<script>Reveal.initialize({
-width: 1920,
-height: 1024,
-center: true,
-slideNumber: "c",
-hash: true,
-showNotes: false,
-plugins: [ RevealHighlight, RevealNotes ]
-});</script>
+<script>Reveal.initialize({width: 1920, height: 1024, center: true,
+slideNumber: "c", hash: true,
+plugins: [ RevealHighlight, RevealNotes ]});</script>
 `)
 	writeHTMLFooter(w, slides.hasMermaid)
 }
 
+func writeTitle(w http.ResponseWriter, title zjson.Array) {
+	if len(title) > 0 {
+		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
+	}
+}
+
 func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
 	if title := si.Slide.Title(); len(title) > 0 {
-		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
+		fmt.Fprintf(w, "<h1>%s</h1>", htmlEncodeInline(he, title))
 	}
 	he.SetUnique(fmt.Sprintf("%d:", si.Number))
 	zjson.WalkBlock(he, si.Slide.Content(), 0)
 	he.visitEndnotes()
-	fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
+	fmt.Fprintf(w, "\n<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
 }
 
 type handoutRenderer struct{}
@@ -525,10 +522,21 @@ func (*handoutRenderer) Role() string { return SlideRoleHandout }
 func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
+	io.WriteString(w, `<style type="text/css">
+blockquote {
+  border-left: 0.5rem solid lightgray;
+  padding-left: 1rem;
+  margin-left: 1rem;
+  margin-right: 2rem;
+  font-style: italic;
+}
+blockquote p { margin-bottom: .5rem }
+blockquote cite { font-style: normal }
+</style>
+`)
+
 	title := slides.Title()
-	if len(title) > 0 {
-		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
-	}
+	writeTitle(w, title)
 	writeMeta(w, "author", author)
 	copyright := slides.Copyright()
 	writeMeta(w, "copyright", copyright)
@@ -642,11 +650,18 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 	} else {
 		fmt.Fprintf(w, "<html lang=\"%s\">\n", lang)
 	}
-	io.WriteString(w, "<head>\n")
-	io.WriteString(w, "<meta charset=\"utf-8\">\n")
-	io.WriteString(w, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n")
-	io.WriteString(w, "<meta name=\"generator\" content=\"Zettel Presenter\">\n")
-	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", mycss)
+	io.WriteString(w, `<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">
+<meta name="generator" content="Zettel Presenter">
+<style type="text/css" media="screen, projection, print">
+td.left, th.left { text-align: left }
+td.center, th.center { text-align: center }
+td.right, th.right { text-align: right }
+ol.endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }
+a.broken { text-decoration: line-through }
+</style>
+`)
 }
 
 func writeHTMLBody(w http.ResponseWriter) { io.WriteString(w, "</head>\n<body>\n") }
@@ -674,25 +689,3 @@ var mermaid string
 
 //go:embed revealjs
 var revealjs embed.FS
-
-var mycss = `/* Additional CSS to make it a little more beautiful */
-td.left, th.left { text-align: left }
-td.center, th.center { text-align: center }
-td.right, th.right { text-align: right }
-img.right { float:right }
-ol.endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }
-a.external {}
-a.broken { text-decoration: line-through }
-ul.header { list-style-type: none; margin: 0; padding: 0;}
-blockquote {
-  border-left: 0.5rem solid lightgray;
-  padding-left: 1rem;
-  margin-left: 1rem;
-  margin-right: 2rem;
-  font-style: italic;
-}
-blockquote p { margin-bottom: .5rem }
-blockquote cite { font-style: normal }
-div.cols { display: flex }
-div.col { flex: 1 }
-`
