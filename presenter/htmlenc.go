@@ -24,10 +24,11 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
-func htmlNew(w io.Writer, s *slideSet, headingOffset int, embedImage, extZettelLinks, writeComment bool) *htmlV {
+func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedImage, extZettelLinks, writeComment bool) *htmlV {
 	return &htmlV{
 		w:              w,
 		s:              s,
+		ren:            ren,
 		headingOffset:  headingOffset,
 		writeFootnote:  true,
 		embedImage:     embedImage,
@@ -62,6 +63,7 @@ type htmlV struct {
 	w              io.Writer
 	s              *slideSet
 	curSlide       *slideInfo
+	ren            renderer
 	headingOffset  int
 	unique         string
 	footnotes      []footnodeInfo
@@ -137,7 +139,9 @@ func (v *htmlV) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.Cl
 		return v.visitQuotation(obj)
 	case zjson.TypeTable:
 		return v.visitTable(obj)
-	case zjson.TypeBlock, zjson.TypePoem:
+	case zjson.TypeBlock:
+		return v.visitBlock(obj)
+	case zjson.TypePoem:
 		return v.visitRegion(obj, "div")
 	case zjson.TypeExcerpt:
 		return v.visitRegion(obj, "blockquote")
@@ -298,6 +302,52 @@ func (v *htmlV) visitRow(row zjson.Array, tag string) {
 		}
 	}
 	v.WriteString("</tr>\n")
+}
+func (v *htmlV) visitBlock(obj zjson.Object) (bool, zjson.CloseFunc) {
+	a := zjson.GetAttributes(obj)
+	if val, found := a.Get(""); found {
+		switch val {
+		case "show":
+			if ren := v.ren; ren == nil || ren.Role() != SlideRoleShow {
+				return false, nil
+			}
+			v.WriteString("<aside class=\"notes\">\n")
+			return true, func() { v.WriteString("</aside>\n") }
+		case "handout":
+			if ren := v.ren; ren == nil || ren.Role() != SlideRoleHandout {
+				return false, nil
+			}
+			v.WriteString("<aside class=\"handout\">\n")
+			return true, func() { v.WriteString("</aside>\n") }
+		case "both":
+			ren := v.ren
+			if ren == nil {
+				return false, nil
+			}
+			switch ren.Role() {
+			case SlideRoleShow:
+				v.WriteString("<aside class=\"notes\">\n")
+			case SlideRoleHandout:
+				v.WriteString("<aside class=\"handout\">\n")
+			default:
+				return false, nil
+			}
+			return true, func() { v.WriteString("</aside>\n") }
+		case "cols", "col":
+			zjsonSetAttribute(obj, a.Remove("").AddClass(val))
+		}
+	}
+	return v.visitRegion(obj, "div")
+}
+func zjsonSetAttribute(obj zjson.Object, a zjson.Attributes) {
+	if len(a) == 0 {
+		delete(obj, zjson.NameAttribute)
+	}
+	val := make(zjson.Object)
+	for k, v := range a {
+		val[k] = v
+	}
+	obj[zjson.NameAttribute] = val
 }
 func (v *htmlV) visitRegion(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	v.Write([]byte{'<'})

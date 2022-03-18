@@ -170,12 +170,12 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 		path := r.URL.Path
 		if zid, suffix := retrieveZidAndSuffix(path); zid != api.InvalidZID {
 			switch suffix {
-			case "slidy", "slide":
-				processSlideSet(w, r, cfg, zid, renderSlidyShow)
-			case "reveal":
-				processSlideSet(w, r, cfg, zid, renderRevealShow)
+			case "slidy":
+				processSlideSet(w, r, cfg, zid, &slidyRenderer{})
+			case "reveal", "slide":
+				processSlideSet(w, r, cfg, zid, &revealRenderer{})
 			case "html":
-				processSlideSet(w, r, cfg, zid, renderHandout)
+				processSlideSet(w, r, cfg, zid, &handoutRenderer{})
 			case "content":
 				if content := processContent(w, r, cfg.c, zid); len(content) > 0 {
 					w.Write(content)
@@ -273,7 +273,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	writeHTMLHeader(w, m.GetString(api.KeyLang))
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	writeHTMLBody(w)
-	he := htmlNew(w, nil, 1, false, true, true)
+	he := htmlNew(w, nil, nil, 1, false, true, true)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
 	hasHeader := false
 	for k, v := range m {
@@ -346,11 +346,11 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
 	}
 	io.WriteString(w, "</ol>\n")
-	fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid)
+	fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.slidy\">Slidy</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid, slides.zid)
 	writeHTMLFooter(w, false)
 }
 
-func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID, render renderSlidesFunc) {
+func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID, ren renderer) {
 	ctx := r.Context()
 	o, err := cfg.c.GetZettelOrder(ctx, zid)
 	if err != nil {
@@ -372,12 +372,18 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		return cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartZettel, false)
 	}
 	setupSlideSet(slides, o.List, getZettel, getZettelZJSON)
-	render(w, slides, slides.Author(cfg))
+	ren.Render(w, slides, slides.Author(cfg))
 }
 
-type renderSlidesFunc func(http.ResponseWriter, *slideSet, string)
+type renderer interface {
+	Role() string
+	Render(w http.ResponseWriter, slides *slideSet, author string)
+}
 
-func renderSlidyShow(w http.ResponseWriter, slides *slideSet, author string) {
+type slidyRenderer struct{}
+
+func (*slidyRenderer) Role() string { return "" }
+func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
@@ -387,7 +393,6 @@ func renderSlidyShow(w http.ResponseWriter, slides *slideSet, author string) {
 	writeMeta(w, "author", author)
 	writeMeta(w, "copyright", slides.Copyright())
 	writeMeta(w, "license", slides.License())
-	// writeMeta(w, "font-size-adjustment", "+1")
 	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", slidy2css)
 	writeHTMLBody(w)
 
@@ -404,7 +409,7 @@ func renderSlidyShow(w http.ResponseWriter, slides *slideSet, author string) {
 		}
 		io.WriteString(w, "\n</div>\n")
 	}
-	he := htmlNew(w, slides, 1, false, true, true)
+	he := htmlNew(w, slides, sr, 1, false, true, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		sl := si.Slide
 		io.WriteString(w, `<div class="slide"`)
@@ -427,7 +432,10 @@ func renderSlidyShow(w http.ResponseWriter, slides *slideSet, author string) {
 	writeHTMLFooter(w, slides.hasMermaid)
 }
 
-func renderRevealShow(w http.ResponseWriter, slides *slideSet, author string) {
+type revealRenderer struct{}
+
+func (*revealRenderer) Role() string { return SlideRoleShow }
+func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
@@ -455,7 +463,7 @@ func renderRevealShow(w http.ResponseWriter, slides *slideSet, author string) {
 		}
 		io.WriteString(w, "\n</section>\n")
 	}
-	he := htmlNew(w, slides, 1, false, true, true)
+	he := htmlNew(w, slides, rr, 1, false, true, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		main := si.Child()
@@ -494,7 +502,7 @@ height: 1024,
 center: true,
 slideNumber: "c",
 hash: true,
-showNotes: true,
+showNotes: false,
 plugins: [ RevealHighlight, RevealNotes ]
 });</script>
 `)
@@ -511,7 +519,10 @@ func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
 	fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
 }
 
-func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
+type handoutRenderer struct{}
+
+func (*handoutRenderer) Role() string { return SlideRoleHandout }
+func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang)
 	title := slides.Title()
@@ -536,7 +547,7 @@ func renderHandout(w http.ResponseWriter, slides *slideSet, author string) {
 		writeEscapedString(w, copyright)
 		writeEscapedString(w, license)
 	}
-	he := htmlNew(w, slides, 1, true, false, false)
+	he := htmlNew(w, slides, hr, 1, true, false, false)
 	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		sl := si.Slide
@@ -682,6 +693,6 @@ blockquote {
 }
 blockquote p { margin-bottom: .5rem }
 blockquote cite { font-style: normal }
-div.container { display: flex }
+div.cols { display: flex }
 div.col { flex: 1 }
 `
