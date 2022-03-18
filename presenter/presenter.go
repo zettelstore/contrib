@@ -270,7 +270,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	zjson.WalkBlock(&zv, content, 0)
 
 	title := getSlideTitleZid(m, zid)
-	writeHTMLHeader(w, m.GetString(api.KeyLang))
+	writeHTMLHeader(w, m.GetString(api.KeyLang), "")
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	writeHTMLBody(w)
 	he := htmlNew(w, nil, nil, 1, false, true, true)
@@ -321,10 +321,8 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 		htmlTitle = htmlEncodeInline(nil, title)
 	}
 
-	writeHTMLHeader(w, slides.Lang())
-	if len(title) > 0 {
-		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
-	}
+	writeHTMLHeader(w, slides.Lang(), "")
+	writeTitle(w, title)
 	writeHTMLBody(w)
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlTitle)
@@ -385,7 +383,7 @@ type slidyRenderer struct{}
 func (*slidyRenderer) Role() string { return "" }
 func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
-	writeHTMLHeader(w, lang)
+	writeHTMLHeader(w, lang, "")
 	title := slides.Title()
 	writeTitle(w, title)
 	writeMeta(w, "author", author)
@@ -435,7 +433,7 @@ type revealRenderer struct{}
 func (*revealRenderer) Role() string { return SlideRoleShow }
 func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
-	writeHTMLHeader(w, lang)
+	writeHTMLHeader(w, lang, ".reveal ")
 	io.WriteString(w, "<style type=\"text/css\">div.cols { display: flex } div.col { flex: 1 }</style>\n")
 
 	title := slides.Title()
@@ -521,7 +519,7 @@ type handoutRenderer struct{}
 func (*handoutRenderer) Role() string { return SlideRoleHandout }
 func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
-	writeHTMLHeader(w, lang)
+	writeHTMLHeader(w, lang, "")
 	io.WriteString(w, `<style type="text/css">
 blockquote {
   border-left: 0.5rem solid lightgray;
@@ -625,7 +623,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 		title = "Selected zettel"
 		query = "Search: " + query
 	}
-	writeHTMLHeader(w, "")
+	writeHTMLHeader(w, "", "")
 	fmt.Fprintf(w, "<title>%s</title>\n", title)
 	writeHTMLBody(w)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(query))
@@ -642,7 +640,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	writeHTMLFooter(w, false)
 }
 
-func writeHTMLHeader(w http.ResponseWriter, lang string) {
+func writeHTMLHeader(w http.ResponseWriter, lang, prefix string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, "<!DOCTYPE html>\n")
 	if lang == "" {
@@ -654,14 +652,29 @@ func writeHTMLHeader(w http.ResponseWriter, lang string) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">
 <meta name="generator" content="Zettel Presenter">
-<style type="text/css" media="screen, projection, print">
-td.left, th.left { text-align: left }
-td.center, th.center { text-align: center }
-td.right, th.right { text-align: right }
-ol.endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }
-a.broken { text-decoration: line-through }
-</style>
 `)
+	writeDefaultCSS(w, prefix)
+}
+
+var defaultCSS = []string{
+	"td.left,",
+	"th.left { text-align: left }",
+	"td.center,",
+	"th.center { text-align: center }",
+	"td.right,",
+	"th.right { text-align: right }",
+	"ol.endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }",
+	"a.broken { text-decoration: line-through }",
+}
+
+func writeDefaultCSS(w http.ResponseWriter, prefix string) {
+	io.WriteString(w, "<style type=\"text/css\">\n")
+	for _, line := range defaultCSS {
+		io.WriteString(w, prefix)
+		io.WriteString(w, line)
+		io.WriteString(w, "\n")
+	}
+	io.WriteString(w, "</style>\n")
 }
 
 func writeHTMLBody(w http.ResponseWriter) { io.WriteString(w, "</head>\n<body>\n") }
