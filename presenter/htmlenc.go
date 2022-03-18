@@ -79,14 +79,15 @@ type htmlV struct {
 // true, false, false for handout
 // false, false, false for manual (?)
 
-func (v *htmlV) Write(b []byte) (int, error)       { return v.w.Write(b) }
-func (v *htmlV) WriteString(s string) (int, error) { return io.WriteString(v.w, s) }
-func (v *htmlV) WriteEOL() (int, error)            { return v.w.Write([]byte{'\n'}) }
-func (v *htmlV) WriteEscaped(s string) (int, error) {
+func (v *htmlV) Write(b []byte) (int, error)        { return v.w.Write(b) }
+func (v *htmlV) WriteString(s string) (int, error)  { return io.WriteString(v.w, s) }
+func (v *htmlV) WriteEOL() (int, error)             { return v.w.Write([]byte{'\n'}) }
+func (v *htmlV) WriteEscaped(s string) (int, error) { return html.Escape(v, s) }
+func (v *htmlV) WriteEscapedLiteral(s string) (int, error) {
 	if v.visibleSpace {
 		return html.EscapeVisible(v, s)
 	}
-	return html.Escape(v, s)
+	return html.EscapeLiteral(v, s)
 }
 func (v *htmlV) WriteAttribute(s string) { html.AttributeEscape(v, s) }
 
@@ -334,21 +335,12 @@ func (v *htmlV) visitBlock(obj zjson.Object) (bool, zjson.CloseFunc) {
 			}
 			return true, func() { v.WriteString("</aside>\n") }
 		case "cols", "col":
-			zjsonSetAttribute(obj, a.Remove("").AddClass(val))
+			zjson.SetAttributes(obj, a.Remove("").AddClass(val))
 		}
 	}
 	return v.visitRegion(obj, "div")
 }
-func zjsonSetAttribute(obj zjson.Object, a zjson.Attributes) {
-	if len(a) == 0 {
-		delete(obj, zjson.NameAttribute)
-	}
-	val := make(zjson.Object)
-	for k, v := range a {
-		val[k] = v
-	}
-	obj[zjson.NameAttribute] = val
-}
+
 func (v *htmlV) visitRegion(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	v.Write([]byte{'<'})
 	v.WriteString(tag)
@@ -374,12 +366,12 @@ func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
 	saveVisible := v.visibleSpace
 	if a.HasDefault() {
 		v.visibleSpace = true
-		a = a.Clone().RemoveDefault()
+		a = a.RemoveDefault()
 	}
 	v.WriteString("<pre><code")
 	v.visitAttributes(setProgLang(a))
 	v.Write([]byte{'>'})
-	v.WriteEscaped(s)
+	v.WriteEscapedLiteral(s)
 	v.WriteString("</code></pre>")
 	v.visibleSpace = saveVisible
 	return false, nil
@@ -387,7 +379,7 @@ func (v *htmlV) visitVerbatimCode(obj zjson.Object) (bool, zjson.CloseFunc) {
 
 func setProgLang(a zjson.Attributes) zjson.Attributes {
 	if val, found := a.Get(""); found {
-		a = a.Clone().AddClass("language-" + val).Remove("")
+		a = a.AddClass("language-" + val).Remove("")
 	}
 	return a
 }
@@ -491,7 +483,7 @@ func (v *htmlV) InlineObject(t string, obj zjson.Object, pos int) (bool, zjson.C
 	case zjson.TypeFormatSuper:
 		return v.visitFormat(obj, "sup")
 	case zjson.TypeLiteralCode:
-		return v.visitLiteral(obj, "code")
+		return v.visitCode(obj)
 	case zjson.TypeLiteralComment:
 		return v.visitLiteralComment(obj)
 	case zjson.TypeLiteralInput:
@@ -533,7 +525,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 	suffix := ""
 	switch q := zjson.GetString(obj, zjson.NameString2); q {
 	case zjson.RefStateExternal:
-		a = a.Clone().Set("href", ref).
+		a = a.Set("href", ref).
 			AddClass("external").
 			Set("target", "_blank").
 			Set("rel", "noopener noreferrer")
@@ -543,19 +535,19 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 		// TODO: check for fragment
 		if si := v.curSlide.FindSlide(zid); si != nil {
 			// TODO: process and add fragment
-			a = a.Clone().Set("href", fmt.Sprintf("#(%d)", si.Number))
+			a = a.Set("href", fmt.Sprintf("#(%d)", si.Number))
 		} else if v.extZettelLinks {
 			// TODO: make link absolute
-			a = a.Clone().Set("href", "/"+ref)
+			a = a.Set("href", "/"+ref)
 			suffix = "&#10547;"
 		}
 	case zjson.RefStateBased, zjson.RefStateHosted:
-		a = a.Clone().Set("href", ref)
+		a = a.Set("href", ref)
 	case zjson.RefStateSelf:
 		// TODO: check for current slide to avoid self reference collisions
-		a = a.Clone().Set("href", ref)
+		a = a.Set("href", ref)
 	case zjson.RefStateBroken:
-		a = a.Clone().AddClass("broken")
+		a = a.AddClass("broken")
 	default:
 		log.Println("LINK", q, ref)
 	}
@@ -681,19 +673,24 @@ func (v *htmlV) visitFormat(obj zjson.Object, tag string) (bool, zjson.CloseFunc
 	return true, func() { fmt.Fprintf(v, "</%s>", tag) }
 }
 
+func (v *htmlV) visitCode(obj zjson.Object) (bool, zjson.CloseFunc) {
+	zjson.SetAttributes(obj, setProgLang(zjson.GetAttributes(obj)))
+	return v.visitLiteral(obj, "code")
+}
+
 func (v *htmlV) visitLiteral(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	if s := zjson.GetString(obj, zjson.NameString); s != "" {
 		a := zjson.GetAttributes(obj)
 		oldVisible := v.visibleSpace
 		if a.HasDefault() {
 			v.visibleSpace = true
-			a = a.Clone().RemoveDefault()
+			a = a.RemoveDefault()
 		}
 		v.Write([]byte{'<'})
 		v.WriteString(tag)
 		v.visitAttributes(a)
 		v.Write([]byte{'>'})
-		v.WriteEscaped(s)
+		v.WriteEscapedLiteral(s)
 		v.WriteString("</")
 		v.WriteString(tag)
 		v.Write([]byte{'>'})
