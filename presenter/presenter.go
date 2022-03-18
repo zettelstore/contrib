@@ -485,8 +485,9 @@ func renderRevealShow(w http.ResponseWriter, slides *slideSet, author string) {
 		}
 	}
 	io.WriteString(w, "</div>\n</div>\n")
-	io.WriteString(w, "<script src=\"revealjs/plugin/highlight/highlight.js\"></script>\n")
-	io.WriteString(w, `<script src="revealjs/reveal.js"></script>
+	io.WriteString(w, `<script src="revealjs/plugin/highlight/highlight.js"></script>
+<script src="revealjs/plugin/notes/notes.js"></script>
+<script src="revealjs/reveal.js"></script>
 <script>Reveal.initialize({
 width: 1920,
 height: 1024,
@@ -494,7 +495,7 @@ center: true,
 slideNumber: "c",
 hash: true,
 showNotes: true,
-plugins: [ RevealHighlight ]
+plugins: [ RevealHighlight, RevealNotes ]
 });</script>
 `)
 	writeHTMLFooter(w, slides.hasMermaid)
