@@ -99,7 +99,7 @@ func getClient(ctx context.Context, base string) (*client.Client, error) {
 		return nil, err
 	}
 	if ver.Major == -1 {
-		fmt.Fprintln(os.Stderr, "Unknown zettelstore version. Use it at your own risk,")
+		fmt.Fprintln(os.Stderr, "Unknown zettelstore version. Use it at your own risk.")
 	} else if !hasVersion(ver.Major, ver.Minor) {
 		return nil, fmt.Errorf("need at least zettelstore version %d.%d", minMajor, minMinor)
 	}
@@ -139,7 +139,10 @@ func getClient(ctx context.Context, base string) (*client.Client, error) {
 	return c, nil
 }
 
-const configZettel = api.ZettelID("00009000001000")
+const (
+	zidConfig   = api.ZettelID("00009000001000")
+	zidSlideCSS = api.ZettelID("00009000001005")
+)
 
 type slidesConfig struct {
 	c            *client.Client
@@ -152,7 +155,7 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 		c:            c,
 		slideSetRole: DefaultSlideSetRole,
 	}
-	m, err := c.GetMeta(ctx, configZettel)
+	m, err := c.GetMeta(ctx, zidConfig)
 	if err != nil {
 		return slidesConfig{}, err
 	}
@@ -370,17 +373,20 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		return cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartZettel, false)
 	}
 	setupSlideSet(slides, o.List, getZettel, getZettelZJSON)
+	ren.Prepare(ctx, cfg)
 	ren.Render(w, slides, slides.Author(cfg))
 }
 
 type renderer interface {
 	Role() string
+	Prepare(context.Context, *slidesConfig)
 	Render(w http.ResponseWriter, slides *slideSet, author string)
 }
 
 type slidyRenderer struct{}
 
-func (*slidyRenderer) Role() string { return "" }
+func (*slidyRenderer) Role() string                           { return "" }
+func (*slidyRenderer) Prepare(context.Context, *slidesConfig) {}
 func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang, "")
@@ -428,13 +434,24 @@ func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author 
 	writeHTMLFooter(w, slides.hasMermaid)
 }
 
-type revealRenderer struct{}
+type revealRenderer struct {
+	userCSS []byte
+}
 
 func (*revealRenderer) Role() string { return SlideRoleShow }
+func (rr *revealRenderer) Prepare(ctx context.Context, cfg *slidesConfig) {
+	if data, err := cfg.c.GetZettel(ctx, zidSlideCSS, api.PartContent); err == nil {
+		rr.userCSS = data
+	}
+}
 func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang, ".reveal ")
-	io.WriteString(w, "<style type=\"text/css\">div.cols { display: flex } div.col { flex: 1 }</style>\n")
+	if len(rr.userCSS) > 0 {
+		io.WriteString(w, `<style type="text/css">`)
+		w.Write(rr.userCSS)
+		io.WriteString(w, "</style>\n")
+	}
 
 	title := slides.Title()
 	writeTitle(w, title)
@@ -516,7 +533,8 @@ func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
 
 type handoutRenderer struct{}
 
-func (*handoutRenderer) Role() string { return SlideRoleHandout }
+func (*handoutRenderer) Role() string                           { return SlideRoleHandout }
+func (*handoutRenderer) Prepare(context.Context, *slidesConfig) {}
 func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang, "")
