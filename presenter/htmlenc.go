@@ -334,7 +334,7 @@ func (v *htmlV) visitBlock(obj zjson.Object) (bool, zjson.CloseFunc) {
 				return false, nil
 			}
 			return true, func() { v.WriteString("\n</aside>") }
-		case "cols", "col":
+		default:
 			zjson.SetAttributes(obj, a.Remove("").AddClass(val))
 		}
 	}
@@ -668,7 +668,11 @@ func (v *htmlV) visitFootnote(obj zjson.Object) (bool, zjson.CloseFunc) {
 func (v *htmlV) visitFormat(obj zjson.Object, tag string) (bool, zjson.CloseFunc) {
 	v.Write([]byte{'<'})
 	v.WriteString(tag)
-	v.visitAttributes(zjson.GetAttributes(obj))
+	a := zjson.GetAttributes(obj)
+	if val, found := a.Get(""); found {
+		a = a.Remove("").AddClass(val)
+	}
+	v.visitAttributes(a)
 	v.Write([]byte{'>'})
 	return true, func() { fmt.Fprintf(v, "</%s>", tag) }
 }
@@ -722,6 +726,9 @@ func (v *htmlV) visitAttributes(a zjson.Attributes) {
 		return
 	}
 	for _, key := range a.Keys() {
+		if key == "" || key == "-" {
+			continue
+		}
 		val, found := a.Get(key)
 		if !found {
 			continue
