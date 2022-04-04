@@ -17,11 +17,12 @@ import (
 	"log"
 
 	"zettelstore.de/c/api"
+	"zettelstore.de/c/html"
 	"zettelstore.de/c/zjson"
 )
 
 func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedImage, extZettelLinks, writeComment bool) *htmlV {
-	enc := NewEncoder(w, headingOffset, writeComment)
+	enc := html.NewEncoder(w, headingOffset, writeComment)
 	v := &htmlV{
 		enc:            enc,
 		s:              s,
@@ -42,14 +43,14 @@ func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
 
 func encodeInline(baseV *htmlV, in zjson.Array) string {
 	if baseV == nil {
-		return EncodeInline(nil, in)
+		return html.EncodeInline(nil, in)
 	}
-	return EncodeInline(baseV.enc, in)
+	return html.EncodeInline(baseV.enc, in)
 }
 func (v *htmlV) TraverseBlock(bn zjson.Array) { v.enc.TraverseBlock(bn) }
 
 type htmlV struct {
-	enc            *Encoder
+	enc            *html.Encoder
 	s              *slideSet
 	curSlide       *slideInfo
 	ren            renderer
@@ -67,7 +68,7 @@ func (v *htmlV) WriteString(s string) (int, error) { return v.enc.WriteString(s)
 
 func (v *htmlV) WriteEndnotes() { v.enc.WriteEndnotes() }
 
-func (v *htmlV) makeVisitBlock(oldF TypeFunc) TypeFunc {
+func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
 	return func(obj zjson.Object) (bool, zjson.CloseFunc) {
 		a := zjson.GetAttributes(obj)
 		if val, found := a.Get(""); found {
@@ -104,7 +105,7 @@ func (v *htmlV) makeVisitBlock(oldF TypeFunc) TypeFunc {
 	}
 }
 
-func (v *htmlV) makeVisitVerbatimEval(visitVerbatimCode TypeFunc) TypeFunc {
+func (v *htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.TypeFunc {
 	return func(obj zjson.Object) (bool, zjson.CloseFunc) {
 		a := zjson.GetAttributes(obj)
 		if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
