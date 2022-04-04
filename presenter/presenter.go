@@ -277,7 +277,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	writeHTMLBody(w)
 	he := htmlNew(w, nil, nil, 1, false, true, true)
-	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
+	fmt.Fprintf(w, "<h1>%s</h1>\n", encodeInline(he, title))
 	hasHeader := false
 	for k, v := range m {
 		if v.Type != zjson.MetaURL {
@@ -297,8 +297,8 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		io.WriteString(w, "</ul>\n")
 	}
 
-	zjson.WalkBlock(he, content, 0)
-	he.visitEndnotes()
+	he.TraverseBlock(content)
+	he.WriteEndnotes()
 	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
 	writeHTMLFooter(w, zv.hasMermaid)
 }
@@ -321,7 +321,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	offset, title, htmlTitle, subtitle := 1, slides.Title(), "", slides.Subtitle()
 	if len(title) > 0 {
 		offset++
-		htmlTitle = htmlEncodeInline(nil, title)
+		htmlTitle = encodeInline(nil, title)
 	}
 
 	writeHTMLHeader(w, slides.Lang(), "")
@@ -330,7 +330,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	if len(title) > 0 {
 		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlTitle)
 		if len(subtitle) > 0 {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", htmlEncodeInline(nil, subtitle))
+			fmt.Fprintf(w, "<h2>%s</h2>\n", encodeInline(nil, subtitle))
 		}
 	}
 	io.WriteString(w, "<ol>\n")
@@ -340,7 +340,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		var slideTitle string
 		if t := si.Slide.Title(); len(t) > 0 {
-			slideTitle = htmlEncodeInline(nil, t)
+			slideTitle = encodeInline(nil, t)
 		} else {
 			slideTitle = string(si.Slide.zid)
 		}
@@ -402,9 +402,9 @@ func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author 
 	if len(title) > 0 {
 		offset++
 		io.WriteString(w, "<div class=\"slide titlepage\">\n")
-		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", htmlEncodeInline(nil, title))
+		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", encodeInline(nil, title))
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
-			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", htmlEncodeInline(nil, subtitle))
+			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", encodeInline(nil, subtitle))
 		}
 		if author != "" {
 			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
@@ -420,13 +420,13 @@ func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author 
 		}
 		io.WriteString(w, ">\n")
 		if title := sl.Title(); len(title) > 0 {
-			fmt.Fprintf(w, "<h1>%s</h1>\n", htmlEncodeInline(he, title))
+			fmt.Fprintf(w, "<h1>%s</h1>\n", encodeInline(he, title))
 		}
 
 		he.SetCurrentSlide(si)
 		he.SetUnique(fmt.Sprintf("%d:", si.Number))
-		zjson.WalkBlock(he, sl.Content(), 0)
-		he.visitEndnotes()
+		he.TraverseBlock(sl.Content())
+		he.WriteEndnotes()
 		fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", sl.zid)
 		io.WriteString(w, "</div>\n")
 	}
@@ -465,9 +465,9 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 	offset := 1
 	if len(title) > 0 {
 		offset++
-		fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", htmlEncodeInline(nil, title))
+		fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", encodeInline(nil, title))
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
-			fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", htmlEncodeInline(nil, subtitle))
+			fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", encodeInline(nil, subtitle))
 		}
 		if author != "" {
 			fmt.Fprintf(w, "\n<p class=\"author\">%s</p>", html.EscapeString(author))
@@ -523,11 +523,11 @@ func writeTitle(w http.ResponseWriter, title zjson.Array) {
 
 func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
 	if title := si.Slide.Title(); len(title) > 0 {
-		fmt.Fprintf(w, "<h1>%s</h1>", htmlEncodeInline(he, title))
+		fmt.Fprintf(w, "<h1>%s</h1>", encodeInline(he, title))
 	}
 	he.SetUnique(fmt.Sprintf("%d:", si.Number))
-	zjson.WalkBlock(he, si.Slide.Content(), 0)
-	he.visitEndnotes()
+	he.TraverseBlock(si.Slide.Content())
+	he.WriteEndnotes()
 	fmt.Fprintf(w, "\n<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
 }
 
@@ -563,9 +563,9 @@ blockquote cite { font-style: normal }
 	offset := 1
 	if len(title) > 0 {
 		offset++
-		fmt.Fprintf(w, "<h1 id=\"(1)\">%s</h1>\n", htmlEncodeInline(nil, title))
+		fmt.Fprintf(w, "<h1 id=\"(1)\">%s</h1>\n", encodeInline(nil, title))
 		if subtitle := slides.Subtitle(); len(subtitle) > 0 {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", htmlEncodeInline(nil, subtitle))
+			fmt.Fprintf(w, "<h2>%s</h2>\n", encodeInline(nil, subtitle))
 		}
 		writeEscapedString(w, author)
 		writeEscapedString(w, copyright)
@@ -576,7 +576,7 @@ blockquote cite { font-style: normal }
 		he.SetCurrentSlide(si)
 		sl := si.Slide
 		if title := sl.Title(); len(title) > 0 {
-			fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s%s</h1>\n", si.Number, htmlEncodeInline(he, title), slideNoRange(si))
+			fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s%s</h1>\n", si.Number, encodeInline(he, title), slideNoRange(si))
 		} else {
 			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", si.Number)
 		}
@@ -586,12 +586,12 @@ blockquote cite { font-style: normal }
 		}
 
 		he.SetUnique(fmt.Sprintf("%d:", si.Number))
-		zjson.WalkBlock(he, sl.Content(), 0)
+		he.TraverseBlock(sl.Content())
 		if slLang != "" && slLang != lang {
 			io.WriteString(w, "</div>")
 		}
 	}
-	he.visitEndnotes()
+	he.WriteEndnotes()
 	writeHTMLFooter(w, slides.hasMermaid)
 }
 
@@ -629,7 +629,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	titles := make([]string, len(zl))
 	for i, jm := range zl {
 		if zjMeta, err := c.GetEvaluatedZJSON(ctx, jm.ID, api.PartMeta, false); err == nil {
-			titles[i] = htmlEncodeInline(nil, getZettelTitleZid(zjson.MakeMeta(zjMeta), jm.ID))
+			titles[i] = encodeInline(nil, getZettelTitleZid(zjson.MakeMeta(zjMeta), jm.ID))
 		}
 	}
 
