@@ -69,7 +69,7 @@ func (v *htmlV) WriteString(s string) (int, error) { return v.enc.WriteString(s)
 func (v *htmlV) WriteEndnotes() { v.enc.WriteEndnotes() }
 
 func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
-	return func(obj zjson.Object) (bool, zjson.CloseFunc) {
+	return func(obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
 		a := zjson.GetAttributes(obj)
 		if val, found := a.Get(""); found {
 			switch val {
@@ -101,12 +101,12 @@ func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
 				return true, func() { v.WriteString("\n</aside>") }
 			}
 		}
-		return oldF(obj)
+		return oldF(obj, pos)
 	}
 }
 
 func (v *htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.TypeFunc {
-	return func(obj zjson.Object) (bool, zjson.CloseFunc) {
+	return func(obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
 		a := zjson.GetAttributes(obj)
 		if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
 			v.WriteString("<div class=\"mermaid\">\n")
@@ -114,11 +114,11 @@ func (v *htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.Type
 			v.WriteString("</div>")
 			return false, nil
 		}
-		return visitVerbatimCode(obj)
+		return visitVerbatimCode(obj, pos)
 	}
 }
 
-func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
+func (v *htmlV) visitLink(obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
 	ref := zjson.GetString(obj, zjson.NameString)
 	in := zjson.GetArray(obj, zjson.NameInline)
 	if ref == "" {
@@ -172,7 +172,7 @@ func (v *htmlV) visitLink(obj zjson.Object) (bool, zjson.CloseFunc) {
 	}
 }
 
-func (v *htmlV) visitEmbed(obj zjson.Object) (bool, zjson.CloseFunc) {
+func (v *htmlV) visitEmbed(obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
 	src := zjson.GetString(obj, zjson.NameString)
 	if syntax := zjson.GetString(obj, zjson.NameString2); syntax == api.ValueSyntaxSVG {
 		v.visitEmbedSVG(src)
