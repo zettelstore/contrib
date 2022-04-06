@@ -21,8 +21,8 @@ import (
 	"zettelstore.de/c/zjson"
 )
 
-func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedImage, extZettelLinks, writeComment bool) *htmlV {
-	enc := html.NewEncoder(w, headingOffset, writeComment)
+func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedImage, extZettelLinks bool) *htmlV {
+	enc := html.NewEncoder(w, headingOffset)
 	v := &htmlV{
 		enc:            enc,
 		s:              s,
@@ -31,12 +31,15 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 		extZettelLinks: extZettelLinks,
 	}
 
-	enc.SetTypeFunc(zjson.TypeBlock, v.makeVisitBlock(enc.MustGetTypeFunc(zjson.TypeBlock)))
+	enc.ChangeTypeFunc(zjson.TypeBlock, v.makeVisitBlock)
 	enc.SetTypeFunc(zjson.TypeVerbatimEval, v.makeVisitVerbatimEval(enc.MustGetTypeFunc(zjson.TypeVerbatimCode)))
+	enc.SetTypeFunc(zjson.TypeVerbatimComment, emptyTypeFunc)
 	enc.SetTypeFunc(zjson.TypeLink, v.visitLink)
 	enc.SetTypeFunc(zjson.TypeEmbed, v.visitEmbed)
+	enc.SetTypeFunc(zjson.TypeLiteralComment, emptyTypeFunc)
 	return v
 }
+func emptyTypeFunc(zjson.Object, int) (bool, zjson.CloseFunc) { return false, nil }
 
 func (v *htmlV) SetUnique(s string)            { v.enc.SetUnique(s) }
 func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
@@ -58,10 +61,10 @@ type htmlV struct {
 	extZettelLinks bool
 }
 
-// embedImage, extZettelLinks, writeComment
-// false, true, true for presentation
-// true, false, false for handout
-// false, false, false for manual (?)
+// embedImage, extZettelLinks
+// false, true for presentation
+// true, false for handout
+// false, false for manual (?)
 
 func (v *htmlV) Write(b []byte) (int, error)       { return v.enc.Write(b) }
 func (v *htmlV) WriteString(s string) (int, error) { return v.enc.WriteString(s) }

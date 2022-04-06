@@ -276,7 +276,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	writeHTMLHeader(w, m.GetString(api.KeyLang), "")
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
 	writeHTMLBody(w)
-	he := htmlNew(w, nil, nil, 1, false, true, true)
+	he := htmlNew(w, nil, nil, 1, false, true)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", encodeInline(he, title))
 	hasHeader := false
 	for k, v := range m {
@@ -411,7 +411,7 @@ func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author 
 		}
 		io.WriteString(w, "\n</div>\n")
 	}
-	he := htmlNew(w, slides, sr, 1, false, true, true)
+	he := htmlNew(w, slides, sr, 1, false, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		sl := si.Slide
 		io.WriteString(w, `<div class="slide"`)
@@ -474,7 +474,7 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 		}
 		io.WriteString(w, "\n</section>\n")
 	}
-	he := htmlNew(w, slides, rr, 1, false, true, true)
+	he := htmlNew(w, slides, rr, 1, false, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		main := si.Child()
@@ -571,7 +571,7 @@ blockquote cite { font-style: normal }
 		writeEscapedString(w, copyright)
 		writeEscapedString(w, license)
 	}
-	he := htmlNew(w, slides, hr, 1, true, false, false)
+	he := htmlNew(w, slides, hr, 1, true, false)
 	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		sl := si.Slide
