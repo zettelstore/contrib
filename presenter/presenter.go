@@ -681,7 +681,7 @@ var defaultCSS = []string{
 	"th.center { text-align: center }",
 	"td.right,",
 	"th.right { text-align: right }",
-	"ol.endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }",
+	"ol.zs-endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }",
 	"a.broken { text-decoration: line-through }",
 }
 
