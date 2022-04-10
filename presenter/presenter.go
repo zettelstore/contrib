@@ -246,7 +246,7 @@ func processContent(w http.ResponseWriter, r *http.Request, c *client.Client, zi
 
 func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesSetRole string) {
 	ctx := r.Context()
-	zjZettel, err := c.GetEvaluatedZJSON(ctx, zid, api.PartZettel, false)
+	zjZettel, err := c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
 	if err != nil {
 		var cerr *client.Error
 		if errors.As(err, &cerr) && cerr.StatusCode == http.StatusNotFound {
@@ -311,7 +311,7 @@ func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, m 
 	slides := newSlideSetMeta(zid, m)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return c.GetZettel(ctx, zid, api.PartContent) }
 	getZettelZJSON := func(zid api.ZettelID) (zjson.Value, error) {
-		return c.GetEvaluatedZJSON(ctx, zid, api.PartZettel, true)
+		return c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
 	}
 	setupSlideSet(slides, o.List, getZettel, getZettelZJSON)
 	return slides
@@ -363,14 +363,14 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		}
 		return
 	}
-	zjMeta, err := cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartMeta, false)
+	zjMeta, err := cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartMeta)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 	}
 	slides := newSlideSet(zid, zjMeta)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return cfg.c.GetZettel(ctx, zid, api.PartContent) }
 	getZettelZJSON := func(zid api.ZettelID) (zjson.Value, error) {
-		return cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartZettel, false)
+		return cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
 	}
 	setupSlideSet(slides, o.List, getZettel, getZettelZJSON)
 	ren.Prepare(ctx, cfg)
@@ -628,7 +628,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	}
 	titles := make([]string, len(zl))
 	for i, jm := range zl {
-		if zjMeta, err := c.GetEvaluatedZJSON(ctx, jm.ID, api.PartMeta, false); err == nil {
+		if zjMeta, err := c.GetEvaluatedZJSON(ctx, jm.ID, api.PartMeta); err == nil {
 			titles[i] = encodeInline(nil, getZettelTitleZid(zjson.MakeMeta(zjMeta), jm.ID))
 		}
 	}
