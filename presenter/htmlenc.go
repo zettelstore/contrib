@@ -39,7 +39,9 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 	enc.SetTypeFunc(zjson.TypeLiteralComment, emptyTypeFunc)
 	return v
 }
-func emptyTypeFunc(zjson.Object, int) (bool, zjson.CloseFunc) { return false, nil }
+func emptyTypeFunc(enc *html.Encoder, _ zjson.Object, _ int) (bool, zjson.CloseFunc) {
+	return false, nil
+}
 
 func (v *htmlV) SetUnique(s string)            { v.enc.SetUnique(s) }
 func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
@@ -72,7 +74,7 @@ func (v *htmlV) WriteString(s string) (int, error) { return v.enc.WriteString(s)
 func (v *htmlV) WriteEndnotes() { v.enc.WriteEndnotes() }
 
 func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
-	return func(obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
+	return func(enc *html.Encoder, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
 		a := zjson.GetAttributes(obj)
 		if val, found := a.Get(""); found {
 			switch val {
@@ -80,14 +82,14 @@ func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
 				if ren := v.ren; ren == nil || ren.Role() != SlideRoleShow {
 					return false, nil
 				}
-				v.WriteString("<aside class=\"notes\">\n")
-				return true, func() { v.WriteString("\n</aside>") }
+				enc.WriteString("<aside class=\"notes\">\n")
+				return true, func() { enc.WriteString("\n</aside>") }
 			case "handout":
 				if ren := v.ren; ren == nil || ren.Role() != SlideRoleHandout {
 					return false, nil
 				}
-				v.WriteString("<aside class=\"handout\">\n")
-				return true, func() { v.WriteString("\n</aside>") }
+				enc.WriteString("<aside class=\"handout\">\n")
+				return true, func() { enc.WriteString("\n</aside>") }
 			case "both":
 				ren := v.ren
 				if ren == nil {
@@ -95,33 +97,33 @@ func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
 				}
 				switch ren.Role() {
 				case SlideRoleShow:
-					v.WriteString("<aside class=\"notes\">\n")
+					enc.WriteString("<aside class=\"notes\">\n")
 				case SlideRoleHandout:
-					v.WriteString("<aside class=\"handout\">\n")
+					enc.WriteString("<aside class=\"handout\">\n")
 				default:
 					return false, nil
 				}
-				return true, func() { v.WriteString("\n</aside>") }
+				return true, func() { enc.WriteString("\n</aside>") }
 			}
 		}
-		return oldF(obj, pos)
+		return oldF(enc, obj, pos)
 	}
 }
 
-func (v *htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.TypeFunc {
-	return func(obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
+func (*htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.TypeFunc {
+	return func(enc *html.Encoder, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
 		a := zjson.GetAttributes(obj)
 		if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
-			v.WriteString("<div class=\"mermaid\">\n")
-			v.WriteString(zjson.GetString(obj, zjson.NameString))
-			v.WriteString("</div>")
+			enc.WriteString("<div class=\"mermaid\">\n")
+			enc.WriteString(zjson.GetString(obj, zjson.NameString))
+			enc.WriteString("</div>")
 			return false, nil
 		}
-		return visitVerbatimCode(obj, pos)
+		return visitVerbatimCode(enc, obj, pos)
 	}
 }
 
-func (v *htmlV) visitLink(obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
+func (v *htmlV) visitLink(enc *html.Encoder, obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
 	ref := zjson.GetString(obj, zjson.NameString)
 	in := zjson.GetArray(obj, zjson.NameInline)
 	if ref == "" {
@@ -175,7 +177,7 @@ func (v *htmlV) visitLink(obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
 	}
 }
 
-func (v *htmlV) visitEmbed(obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
+func (v *htmlV) visitEmbed(enc *html.Encoder, obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
 	src := zjson.GetString(obj, zjson.NameString)
 	if syntax := zjson.GetString(obj, zjson.NameString2); syntax == api.ValueSyntaxSVG {
 		v.visitEmbedSVG(src)
@@ -184,20 +186,20 @@ func (v *htmlV) visitEmbed(obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
 	zid := api.ZettelID(src)
 	if v.s != nil && v.embedImage && zid.IsValid() && v.s.HasImage(zid) {
 		if img, found := v.s.GetImage(zid); found {
-			v.WriteString(`<img src="data:image/`)
-			v.WriteString(img.syntax)
-			v.WriteString(";base64,")
-			base64.NewEncoder(base64.StdEncoding, v).Write(img.data)
-			v.enc.WriteImageTitle(obj)
+			enc.WriteString(`<img src="data:image/`)
+			enc.WriteString(img.syntax)
+			enc.WriteString(";base64,")
+			base64.NewEncoder(base64.StdEncoding, enc).Write(img.data)
+			enc.WriteImageTitle(obj)
 			return false, nil
 		}
 	}
 	if zid.IsValid() {
 		src = "/" + src + ".content"
 	}
-	v.WriteString(`<img src="`)
-	v.WriteString(src)
-	v.enc.WriteImageTitle(obj)
+	enc.WriteString(`<img src="`)
+	enc.WriteString(src)
+	enc.WriteImageTitle(obj)
 	return false, nil
 }
 func (v *htmlV) visitEmbedSVG(src string) {
