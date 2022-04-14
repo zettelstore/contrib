@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -33,14 +34,11 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 
 	enc.ChangeTypeFunc(zjson.TypeBlock, v.makeVisitBlock)
 	enc.SetTypeFunc(zjson.TypeVerbatimEval, v.makeVisitVerbatimEval(enc.MustGetTypeFunc(zjson.TypeVerbatimCode)))
-	enc.SetTypeFunc(zjson.TypeVerbatimComment, emptyTypeFunc)
+	enc.SetTypeFunc(zjson.TypeVerbatimComment, html.DoNothingTypeFunc)
 	enc.SetTypeFunc(zjson.TypeLink, v.visitLink)
 	enc.SetTypeFunc(zjson.TypeEmbed, v.visitEmbed)
-	enc.SetTypeFunc(zjson.TypeLiteralComment, emptyTypeFunc)
+	enc.SetTypeFunc(zjson.TypeLiteralComment, html.DoNothingTypeFunc)
 	return v
-}
-func emptyTypeFunc(enc *html.Encoder, _ zjson.Object, _ int) (bool, zjson.CloseFunc) {
-	return false, nil
 }
 
 func (v *htmlV) SetUnique(s string)            { v.enc.SetUnique(s) }
@@ -48,9 +46,9 @@ func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
 
 func encodeInline(baseV *htmlV, in zjson.Array) string {
 	if baseV == nil {
-		return html.EncodeInline(nil, in)
+		return html.EncodeInline(nil, in, false, false)
 	}
-	return html.EncodeInline(baseV.enc, in)
+	return html.EncodeInline(baseV.enc, in, true, true)
 }
 func (v *htmlV) TraverseBlock(bn zjson.Array) { v.enc.TraverseBlock(bn) }
 
@@ -186,20 +184,19 @@ func (v *htmlV) visitEmbed(enc *html.Encoder, obj zjson.Object, _ int) (bool, zj
 	zid := api.ZettelID(src)
 	if v.s != nil && v.embedImage && zid.IsValid() && v.s.HasImage(zid) {
 		if img, found := v.s.GetImage(zid); found {
-			enc.WriteString(`<img src="data:image/`)
-			enc.WriteString(img.syntax)
-			enc.WriteString(";base64,")
-			base64.NewEncoder(base64.StdEncoding, enc).Write(img.data)
-			enc.WriteImageTitle(obj)
+			var buf bytes.Buffer
+			buf.WriteString("data:image/")
+			buf.WriteString(img.syntax)
+			buf.WriteString(";base64,")
+			base64.NewEncoder(base64.StdEncoding, &buf).Write(img.data)
+			enc.WriteImage(obj, buf.String())
 			return false, nil
 		}
 	}
 	if zid.IsValid() {
 		src = "/" + src + ".content"
 	}
-	enc.WriteString(`<img src="`)
-	enc.WriteString(src)
-	enc.WriteImageTitle(obj)
+	enc.WriteImage(obj, src)
 	return false, nil
 }
 func (v *htmlV) visitEmbedSVG(src string) {
