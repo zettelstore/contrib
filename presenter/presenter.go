@@ -280,7 +280,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	fmt.Fprintf(w, "<h1>%s</h1>\n", encodeInline(he, title))
 	hasHeader := false
 	for k, v := range m {
-		if v.Type != zjson.MetaURL {
+		if v.Type != api.MetaURL {
 			continue
 		}
 		u := zjson.MakeString(v.Value)
