@@ -14,6 +14,7 @@ import (
 	"log"
 	"strconv"
 
+	"github.com/t73fde/sxpf"
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/zjson"
 )
@@ -37,35 +38,35 @@ const (
 
 // Slide is one slide that is shown one or more times.
 type slide struct {
-	zid     api.ZettelID // The zettel identifier
-	title   zjson.Array
-	lang    string
-	role    string
-	content zjson.Array // Zettel / slide content
+	zid      api.ZettelID // The zettel identifier
+	zTitle   zjson.Array
+	lang     string
+	role     string
+	zContent zjson.Array // Zettel / slide content
 }
 
-func newSlide(zid api.ZettelID, meta zjson.Meta, content zjson.Array) *slide {
+func newSlide(zid api.ZettelID, zMeta zjson.Meta, zContent zjson.Array) *slide {
 	return &slide{
-		zid:     zid,
-		title:   getSlideTitle(meta),
-		lang:    meta.GetString(api.KeyLang),
-		role:    meta.GetString(KeySlideRole),
-		content: content,
+		zid:      zid,
+		zTitle:   zGetSlideTitle(zMeta),
+		lang:     zMeta.GetString(api.KeyLang),
+		role:     zMeta.GetString(KeySlideRole),
+		zContent: zContent,
 	}
 }
-func (sl *slide) MakeChild(title, content zjson.Array) *slide {
+func (sl *slide) MakeChild(zTitle, zContent zjson.Array) *slide {
 	return &slide{
-		zid:     sl.zid,
-		title:   title,
-		lang:    sl.lang,
-		role:    sl.role,
-		content: content,
+		zid:      sl.zid,
+		zTitle:   zTitle,
+		lang:     sl.lang,
+		role:     sl.role,
+		zContent: zContent,
 	}
 }
 
-func (sl *slide) Title() zjson.Array   { return sl.title }
-func (sl *slide) Lang() string         { return sl.lang }
-func (sl *slide) Content() zjson.Array { return sl.content }
+func (sl *slide) ZTitle() zjson.Array   { return sl.zTitle }
+func (sl *slide) Lang() string          { return sl.lang }
+func (sl *slide) ZContent() zjson.Array { return sl.zContent }
 
 func (sl *slide) HasSlideRole(sr string) bool {
 	if sr == "" {
@@ -109,32 +110,32 @@ func (si *slideInfo) LastChild() *slideInfo {
 
 func (si *slideInfo) SplitChildren() {
 	var oldest, youngest *slideInfo
-	title := si.Slide.Title()
-	var content zjson.Array
-	for _, bn := range si.Slide.content {
-		obj := zjson.MakeObject(bn)
-		ti, found := obj[zjson.NameType]
+	zTitle := si.Slide.ZTitle()
+	var zContent zjson.Array
+	for _, zbn := range si.Slide.zContent {
+		zobj := zjson.MakeObject(zbn)
+		zti, found := zobj[zjson.NameType]
 		if !found {
 			return
 		}
-		if zjson.MakeString(ti) != zjson.TypeHeading {
-			content = append(content, bn)
+		if zjson.MakeString(zti) != zjson.TypeHeading {
+			zContent = append(zContent, zbn)
 			continue
 		}
-		if level, err := strconv.Atoi(zjson.GetNumber(obj)); err != nil || level > 1 {
-			content = append(content, bn)
+		if zLevel, err := strconv.Atoi(zjson.GetNumber(zobj)); err != nil || zLevel > 1 {
+			zContent = append(zContent, zbn)
 			continue
 		}
-		nextTitle := zjson.GetArray(obj, zjson.NameInline)
-		if len(nextTitle) == 0 {
-			content = append(content, bn)
+		zNextTitle := zjson.GetArray(zobj, zjson.NameInline)
+		if len(zNextTitle) == 0 {
+			zContent = append(zContent, zbn)
 			continue
 		}
 		slInfo := &slideInfo{
 			prev:  youngest,
-			Slide: si.Slide.MakeChild(title, content),
+			Slide: si.Slide.MakeChild(zTitle, zContent),
 		}
-		content = nil
+		zContent = nil
 		if oldest == nil {
 			oldest = slInfo
 		}
@@ -142,15 +143,15 @@ func (si *slideInfo) SplitChildren() {
 			youngest.next = slInfo
 		}
 		youngest = slInfo
-		title = nextTitle
+		zTitle = zNextTitle
 	}
 	if oldest == nil {
-		oldest = &slideInfo{Slide: si.Slide.MakeChild(title, content)}
+		oldest = &slideInfo{Slide: si.Slide.MakeChild(zTitle, zContent)}
 		youngest = oldest
 	} else {
 		slInfo := &slideInfo{
 			prev:  youngest,
-			Slide: si.Slide.MakeChild(title, content),
+			Slide: si.Slide.MakeChild(zTitle, zContent),
 		}
 		if youngest != nil {
 			youngest.next = slInfo
@@ -190,7 +191,7 @@ type image struct {
 // slideSet is the sequence of slides shown.
 type slideSet struct {
 	zid         api.ZettelID
-	meta        zjson.Meta // Metadata of slideset
+	zMeta       zjson.Meta // Metadata of slideset
 	seqSlide    []*slide   // slide may occur more than once in seq, but should be stored only once
 	setSlide    map[api.ZettelID]*slide
 	setImage    map[api.ZettelID]image
@@ -199,16 +200,16 @@ type slideSet struct {
 }
 
 func newSlideSet(zid api.ZettelID, zjMeta zjson.Value) *slideSet {
-	m := zjson.MakeMeta(zjMeta)
-	if len(m) == 0 {
+	zm := zjson.MakeMeta(zjMeta)
+	if len(zm) == 0 {
 		return nil
 	}
-	return newSlideSetMeta(zid, m)
+	return newSlideSetMeta(zid, zm)
 }
-func newSlideSetMeta(zid api.ZettelID, m zjson.Meta) *slideSet {
+func newSlideSetMeta(zid api.ZettelID, zm zjson.Meta) *slideSet {
 	return &slideSet{
 		zid:      zid,
-		meta:     m,
+		zMeta:    zm,
 		setSlide: make(map[api.ZettelID]*slide),
 		setImage: make(map[api.ZettelID]image),
 	}
@@ -332,68 +333,69 @@ func (s *slideSet) Images() []api.ZettelID {
 	return result
 }
 
-func (s *slideSet) Title() zjson.Array { return getSlideTitle(s.meta) }
-func (s *slideSet) Subtitle() zjson.Array {
-	if subTitle := s.meta.GetArray(KeySubTitle); len(subTitle) > 0 {
+func (s *slideSet) ZTitle() zjson.Array { return zGetSlideTitle(s.zMeta) }
+func (s *slideSet) ZSubtitle() zjson.Array {
+	if subTitle := s.zMeta.GetArray(KeySubTitle); len(subTitle) > 0 {
 		return subTitle
 	}
 	return nil
 }
-func (s *slideSet) Lang() string { return s.meta.GetString(api.KeyLang) }
+func (s *slideSet) Lang() string { return s.zMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
-	if author := s.meta.GetString(KeyAuthor); author != "" {
+	if author := s.zMeta.GetString(KeyAuthor); author != "" {
 		return author
 	}
 	return cfg.author
 }
-func (s *slideSet) Copyright() string { return s.meta.GetString(api.KeyCopyright) }
-func (s *slideSet) License() string   { return s.meta.GetString(api.KeyLicense) }
+func (s *slideSet) Copyright() string { return s.zMeta.GetString(api.KeyCopyright) }
+func (s *slideSet) License() string   { return s.zMeta.GetString(api.KeyLicense) }
 
 type getZettelContentFunc func(api.ZettelID) ([]byte, error)
-type getZettelZSONFunc func(api.ZettelID) (zjson.Value, error)
+type zGetZettelFunc func(api.ZettelID) (zjson.Value, error)
+type sGetZettelFunc func(api.ZettelID) (sxpf.Value, error)
 
-func (s *slideSet) AddSlide(zid api.ZettelID, getZettel getZettelZSONFunc) {
+func (s *slideSet) AddSlide(zid api.ZettelID, zGetZettel zGetZettelFunc, sGetZettel sGetZettelFunc) {
 	if sl, found := s.setSlide[zid]; found {
 		s.seqSlide = append(s.seqSlide, sl)
 		return
 	}
-	zjZettel, err := getZettel(zid)
+	zjZettel, err := zGetZettel(zid)
 	if err != nil {
 		// TODO: add artificial slide with error message / data
 		return
 	}
-	slMeta, slContent := zjson.GetMetaContent(zjZettel)
-	if slMeta == nil || slContent == nil {
+	zslMeta, zslContent := zjson.GetMetaContent(zjZettel)
+	if zslMeta == nil || zslContent == nil {
 		// TODO: Add artificial slide with error message
 		return
 	}
-	sl := newSlide(zid, slMeta, slContent)
+	sl := newSlide(zid, zslMeta, zslContent)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) AdditionalSlide(zid api.ZettelID, m zjson.Meta, content zjson.Array) {
+func (s *slideSet) AdditionalSlide(zid api.ZettelID, zm zjson.Meta, zContent zjson.Array) {
 	// TODO: if first, add slide with text "additional content"
-	sl := newSlide(zid, m, content)
+	sl := newSlide(zid, zm, zContent)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON getZettelZSONFunc) {
+func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGetZettelFunc) {
 	if s.isCompleted {
 		return
 	}
-	v := collectVisitor{getZettel: getZettel, getZettelZJSON: getZettelZJSON, s: s}
+	v := collectVisitor{getZettel: getZettel, zGetZettel: getZettelZJSON, s: s}
 	v.Collect()
 	s.isCompleted = true
 }
 
 type collectVisitor struct {
-	getZettel      getZettelContentFunc
-	getZettelZJSON getZettelZSONFunc
-	s              *slideSet
-	stack          []api.ZettelID
-	visited        map[api.ZettelID]*slide
+	getZettel  getZettelContentFunc
+	zGetZettel zGetZettelFunc
+	s          *slideSet
+	stack      []api.ZettelID
+	visited    map[api.ZettelID]*slide
 }
 
 func (v *collectVisitor) Push(zid api.ZettelID) {
@@ -422,7 +424,7 @@ func (v *collectVisitor) Collect() {
 			panic(zid)
 		}
 		v.visited[zid] = sl
-		zjson.WalkBlock(v, sl.Content(), 0)
+		zjson.WalkBlock(v, sl.ZContent(), 0)
 	}
 }
 
@@ -467,7 +469,7 @@ func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 		return
 	}
 	// log.Println("ZETT", zid)
-	zjZettel, err := v.getZettelZJSON(zid)
+	zjZettel, err := v.zGetZettel(zid)
 	if err != nil {
 		log.Println("GETZ", err)
 		// TODO: add artificial slide with error message / data
@@ -533,21 +535,21 @@ func (v *zettelVisitor) InlineObject(t string, obj zjson.Object, pos int) (bool,
 
 // Utility function to retrieve some slide/slideset metadata.
 
-func getSlideTitle(m zjson.Meta) zjson.Array {
-	if title := m.GetArray(KeySlideTitle); len(title) > 0 {
-		return title
+func zGetSlideTitle(zm zjson.Meta) zjson.Array {
+	if zTitle := zm.GetArray(KeySlideTitle); len(zTitle) > 0 {
+		return zTitle
 	}
-	return m.GetArray(api.KeyTitle)
+	return zm.GetArray(api.KeyTitle)
 }
-func getSlideTitleZid(m zjson.Meta, zid api.ZettelID) zjson.Array {
-	if title := getSlideTitle(m); len(title) > 0 {
-		return title
+func zGetSlideTitleZid(zm zjson.Meta, zid api.ZettelID) zjson.Array {
+	if zTitle := zGetSlideTitle(zm); len(zTitle) > 0 {
+		return zTitle
 	}
 	return zjson.Array{zjson.Object{zjson.NameType: zjson.TypeText, zjson.NameString: string(zid)}}
 }
-func getZettelTitleZid(m zjson.Meta, zid api.ZettelID) zjson.Array {
-	if title := m.GetArray(api.KeyTitle); len(title) > 0 {
-		return title
+func zGetZettelTitleZid(zm zjson.Meta, zid api.ZettelID) zjson.Array {
+	if zTitle := zm.GetArray(api.KeyTitle); len(zTitle) > 0 {
+		return zTitle
 	}
 	return zjson.Array{zjson.Object{zjson.NameType: zjson.TypeText, zjson.NameString: string(zid)}}
 }
