@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/t73fde/sxpf"
 	"golang.org/x/term"
@@ -67,9 +66,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Unable to retrieve presenter config: %v\n", err)
 		os.Exit(2)
 	}
-
-	// Fix an error in slidy.js
-	slidy2js = strings.ReplaceAll(slidy2js, "</script>", "<\\/script>")
 
 	http.HandleFunc("/", makeHandler(&cfg))
 	http.Handle("/revealjs/", http.FileServer(http.FS(revealjs)))
@@ -176,8 +172,6 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 		path := r.URL.Path
 		if zid, suffix := retrieveZidAndSuffix(path); zid != api.InvalidZID {
 			switch suffix {
-			case "slidy":
-				processSlideSet(w, r, cfg, zid, &slidyRenderer{})
 			case "reveal", "slide":
 				processSlideSet(w, r, cfg, zid, &revealRenderer{})
 			case "html":
@@ -353,7 +347,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
 	}
 	io.WriteString(w, "</ol>\n")
-	fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.slidy\">Slidy</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid, slides.zid)
+	fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid)
 	writeHTMLFooter(w, false)
 }
 
@@ -390,57 +384,6 @@ type renderer interface {
 	Role() string
 	Prepare(context.Context, *slidesConfig)
 	Render(w http.ResponseWriter, slides *slideSet, author string)
-}
-
-type slidyRenderer struct{}
-
-func (*slidyRenderer) Role() string                           { return "" }
-func (*slidyRenderer) Prepare(context.Context, *slidesConfig) {}
-func (sr *slidyRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
-	lang := slides.Lang()
-	writeHTMLHeader(w, lang, "")
-	zTitle := slides.ZTitle()
-	zWriteTitle(w, zTitle)
-	writeMeta(w, "author", author)
-	writeMeta(w, "copyright", slides.Copyright())
-	writeMeta(w, "license", slides.License())
-	fmt.Fprintf(w, "<style type=\"text/css\" media=\"screen, projection, print\">\n%s</style>\n", slidy2css)
-	writeHTMLBody(w)
-
-	offset := 1
-	if len(zTitle) > 0 {
-		offset++
-		io.WriteString(w, "<div class=\"slide titlepage\">\n")
-		fmt.Fprintf(w, "<h1 class=\"title\">%s</h1>\n", encodeInline(nil, zTitle))
-		if zSubtitle := slides.ZSubtitle(); len(zSubtitle) > 0 {
-			fmt.Fprintf(w, "<p class=\"subtitle\">%s</p>\n", encodeInline(nil, zSubtitle))
-		}
-		if author != "" {
-			fmt.Fprintf(w, "<p class=\"author\">%s</p>\n", html.EscapeString(author))
-		}
-		io.WriteString(w, "\n</div>\n")
-	}
-	he := htmlNew(w, slides, sr, 1, false, true)
-	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
-		sl := si.Slide
-		io.WriteString(w, `<div class="slide"`)
-		if slLang := sl.Lang(); slLang != "" && slLang != lang {
-			fmt.Fprintf(w, ` lang="%s"`, slLang)
-		}
-		io.WriteString(w, ">\n")
-		if title := sl.ZTitle(); len(title) > 0 {
-			fmt.Fprintf(w, "<h1>%s</h1>\n", encodeInline(he, title))
-		}
-
-		he.SetCurrentSlide(si)
-		he.SetUnique(fmt.Sprintf("%d:", si.Number))
-		he.TraverseBlock(sl.ZContent())
-		he.WriteEndnotes()
-		fmt.Fprintf(w, "<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", sl.zid)
-		io.WriteString(w, "</div>\n")
-	}
-	fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", slidy2js)
-	writeHTMLFooter(w, slides.hasMermaid)
 }
 
 type revealRenderer struct {
@@ -677,7 +620,7 @@ func writeHTMLHeader(w http.ResponseWriter, lang, prefix string) {
 	}
 	io.WriteString(w, `<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="generator" content="Zettel Presenter">
 `)
 	writeDefaultCSS(w, prefix)
@@ -717,12 +660,6 @@ func writeMeta(w http.ResponseWriter, key, val string) {
 		fmt.Fprintf(w, "<meta name=\"%s\" content=\"%s\" />\n", key, html.EscapeString(val))
 	}
 }
-
-//go:embed slidy2/slidy.css
-var slidy2css string
-
-//go:embed slidy2/slidy.js
-var slidy2js string
 
 //go:embed mermaid/mermaid.min.js
 var mermaid string
