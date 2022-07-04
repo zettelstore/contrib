@@ -24,7 +24,7 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/t73fde/sxpf"
+	"codeberg.org/t73fde/sxpf"
 	"golang.org/x/term"
 
 	"zettelstore.de/c/api"
