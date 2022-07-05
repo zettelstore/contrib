@@ -17,14 +17,17 @@ import (
 	"io"
 	"log"
 
+	"codeberg.org/t73fde/sxpf"
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/html"
 	"zettelstore.de/c/zjson"
 )
 
 func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedImage, extZettelLinks bool) *htmlV {
+	env := html.NewEncEnvironment(w, headingOffset)
 	enc := html.NewEncoder(w, headingOffset)
 	v := &htmlV{
+		env:            env,
 		enc:            enc,
 		s:              s,
 		ren:            ren,
@@ -44,7 +47,7 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 func (v *htmlV) SetUnique(s string)            { v.enc.SetUnique(s) }
 func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
 
-func encodeInline(baseV *htmlV, in zjson.Array) string {
+func zEncodeInline(baseV *htmlV, in zjson.Array) string {
 	if baseV == nil {
 		return html.EncodeInline(nil, in, false, false)
 	}
@@ -52,7 +55,15 @@ func encodeInline(baseV *htmlV, in zjson.Array) string {
 }
 func (v *htmlV) TraverseBlock(bn zjson.Array) { v.enc.TraverseBlock(bn) }
 
+func evaluateInline(baseV *htmlV, in sxpf.Sequence) string {
+	if baseV == nil {
+		return html.EvaluateInline(nil, in, false, false)
+	}
+	return html.EvaluateInline(baseV.env, in, true, true)
+}
+
 type htmlV struct {
+	env            *html.EncEnvironment
 	enc            *html.Encoder
 	s              *slideSet
 	curSlide       *slideInfo
