@@ -273,9 +273,6 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		}
 	}
 
-	zv := zettelVisitor{}
-	zjson.WalkBlock(&zv, zContent, 0)
-
 	title := getSlideTitleZid(sxMeta, zid)
 	writeHTMLHeader(w, sxMeta.GetString(api.KeyLang), "")
 	fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
@@ -304,7 +301,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	he.TraverseBlock(zContent)
 	he.WriteEndnotes()
 	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
-	writeHTMLFooter(w, zv.hasMermaid)
+	writeHTMLFooter(w, he.hasMermaid)
 }
 
 func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, zm zjson.Meta, sxMeta sexpr.Meta) *slideSet {

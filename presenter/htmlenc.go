@@ -33,6 +33,7 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 		ren:            ren,
 		embedImage:     embedImage,
 		extZettelLinks: extZettelLinks,
+		hasMermaid:     false,
 	}
 
 	enc.ChangeTypeFunc(zjson.TypeBlock, v.makeVisitBlock)
@@ -70,12 +71,15 @@ type htmlV struct {
 	ren            renderer
 	embedImage     bool
 	extZettelLinks bool
+	hasMermaid     bool
 }
 
 // embedImage, extZettelLinks
 // false, true for presentation
 // true, false for handout
 // false, false for manual (?)
+
+func (v *htmlV) HasMermaid() bool { return v.hasMermaid }
 
 func (v *htmlV) Write(b []byte) (int, error)       { return v.enc.Write(b) }
 func (v *htmlV) WriteString(s string) (int, error) { return v.enc.WriteString(s) }
@@ -119,10 +123,11 @@ func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
 	}
 }
 
-func (*htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.TypeFunc {
+func (v *htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.TypeFunc {
 	return func(enc *html.Encoder, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
 		a := zjson.GetAttributes(obj)
 		if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
+			v.hasMermaid = true
 			enc.WriteString("<div class=\"mermaid\">\n")
 			enc.WriteString(zjson.GetString(obj, zjson.NameString))
 			enc.WriteString("</div>")
