@@ -405,24 +405,7 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 		return
 	}
 	v := collectVisitor{getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr, s: s}
-	v.Collect()
-	s.isCompleted = true
-}
-
-type collectVisitor struct {
-	getZettel  getZettelContentFunc
-	zGetZettel zGetZettelFunc
-	sGetZettel sGetZettelFunc
-	s          *slideSet
-	stack      []api.ZettelID
-	visited    map[api.ZettelID]*slide
-}
-
-func (v *collectVisitor) Push(zid api.ZettelID) {
-	v.stack = append(v.stack, zid)
-}
-func (v *collectVisitor) Collect() {
-	zids := v.s.SlideZids()
+	zids := s.SlideZids()
 	for i := len(zids) - 1; i >= 0; i-- {
 		v.Push(zids[i])
 	}
@@ -439,14 +422,28 @@ func (v *collectVisitor) Collect() {
 		if _, found := v.visited[zid]; found {
 			continue
 		}
-		sl := v.s.GetSlide(zid)
+		sl := s.GetSlide(zid)
 		if sl == nil {
 			panic(zid)
 		}
 		v.visited[zid] = sl
-		zjson.WalkBlock(v, sl.ZContent(), 0)
+
+		zjson.WalkBlock(&v, sl.ZContent(), 0)
 	}
+
+	s.isCompleted = true
 }
+
+type collectVisitor struct {
+	getZettel  getZettelContentFunc
+	zGetZettel zGetZettelFunc
+	sGetZettel sGetZettelFunc
+	s          *slideSet
+	stack      []api.ZettelID
+	visited    map[api.ZettelID]*slide
+}
+
+func (v *collectVisitor) Push(zid api.ZettelID) { v.stack = append(v.stack, zid) }
 
 func (v *collectVisitor) BlockArray(a zjson.Array, pos int) zjson.CloseFunc  { return nil }
 func (v *collectVisitor) InlineArray(a zjson.Array, pos int) zjson.CloseFunc { return nil }
