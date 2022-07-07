@@ -41,18 +41,22 @@ const (
 type slide struct {
 	zid      api.ZettelID // The zettel identifier
 	zTitle   zjson.Array
+	title    sxpf.Sequence
 	lang     string
 	role     string
 	zContent zjson.Array // Zettel / slide content
+	content  sxpf.Value
 }
 
-func newSlide(zid api.ZettelID, zMeta zjson.Meta, zContent zjson.Array) *slide {
+func newSlide(zid api.ZettelID, zMeta zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent sxpf.Value) *slide {
 	return &slide{
 		zid:      zid,
 		zTitle:   zGetSlideTitle(zMeta),
-		lang:     zMeta.GetString(api.KeyLang),
-		role:     zMeta.GetString(KeySlideRole),
+		title:    getSlideTitleZid(sxMeta, zid),
+		lang:     sxMeta.GetString(api.KeyLang),
+		role:     sxMeta.GetString(KeySlideRole),
 		zContent: zContent,
+		content:  sxContent,
 	}
 }
 func (sl *slide) MakeChild(zTitle, zContent zjson.Array) *slide {
@@ -374,23 +378,33 @@ func (s *slideSet) AddSlide(zid api.ZettelID, zGetZettel zGetZettelFunc, sGetZet
 		// TODO: Add artificial slide with error message
 		return
 	}
-	sl := newSlide(zid, zslMeta, zslContent)
+	sxZettel, err := sGetZettel(zid)
+	if err != nil {
+		// TODO: add artificial slide with error message / data
+		return
+	}
+	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
+	if sxMeta == nil || sxContent == nil {
+		// TODO: Add artificial slide with error message
+		return
+	}
+	sl := newSlide(zid, zslMeta, zslContent, sxMeta, sxContent)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) AdditionalSlide(zid api.ZettelID, zm zjson.Meta, zContent zjson.Array) {
+func (s *slideSet) AdditionalSlide(zid api.ZettelID, zm zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent sxpf.Value) {
 	// TODO: if first, add slide with text "additional content"
-	sl := newSlide(zid, zm, zContent)
+	sl := newSlide(zid, zm, zContent, sxMeta, sxContent)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGetZettelFunc) {
+func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGetZettelFunc, getZettelSexpr sGetZettelFunc) {
 	if s.isCompleted {
 		return
 	}
-	v := collectVisitor{getZettel: getZettel, zGetZettel: getZettelZJSON, s: s}
+	v := collectVisitor{getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr, s: s}
 	v.Collect()
 	s.isCompleted = true
 }
@@ -398,6 +412,7 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 type collectVisitor struct {
 	getZettel  getZettelContentFunc
 	zGetZettel zGetZettelFunc
+	sGetZettel sGetZettelFunc
 	s          *slideSet
 	stack      []api.ZettelID
 	visited    map[api.ZettelID]*slide
@@ -488,11 +503,24 @@ func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 		log.Println("MECO", zid)
 		return
 	}
-	if vis := slMeta.GetString(api.KeyVisibility); vis != api.ValueVisibilityPublic {
+	sxZettel, err := v.sGetZettel(zid)
+	if err != nil {
+		log.Println("GETS", err)
+		// TODO: add artificial slide with error message / data
+		return
+	}
+	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
+	if sxMeta == nil || sxContent == nil {
+		// TODO: Add artificial slide with error message
+		log.Println("MECo", zid)
+		return
+	}
+
+	if vis := sxMeta.GetString(api.KeyVisibility); vis != api.ValueVisibilityPublic {
 		// log.Println("VISZ", zid, vis)
 		return
 	}
-	v.s.AdditionalSlide(zid, slMeta, slContent)
+	v.s.AdditionalSlide(zid, slMeta, slContent, sxMeta, sxContent)
 	v.Push(zid)
 }
 

@@ -573,7 +573,7 @@ func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelCon
 	for _, sl := range l {
 		slides.AddSlide(sl.ID, zGetZettel, sGetZettel)
 	}
-	slides.Completion(getZettel, zGetZettel)
+	slides.Completion(getZettel, zGetZettel, sGetZettel)
 }
 
 func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
