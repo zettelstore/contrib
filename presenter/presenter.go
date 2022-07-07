@@ -258,7 +258,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		return
 	}
 
-	sxZettel, err := c.GetEvaluatedSexpr(ctx, sexpr.Smk, zid, api.PartZettel)
+	sxZettel, err := c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
 	if err != nil {
 		reportRetrieveError(w, zid, err, "zettel")
 		return
@@ -315,7 +315,7 @@ func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, zm
 		return c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
 	}
 	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
-		return c.GetEvaluatedSexpr(ctx, sexpr.Smk, zid, api.PartZettel)
+		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
 	}
 	setupSlideSet(slides, o.List, getZettel, zGetZettel, sGetZettel)
 	return slides
@@ -367,7 +367,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 		return
 	}
-	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, sexpr.Smk, zid, api.PartMeta)
+	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartMeta)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 		return
@@ -378,7 +378,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		return cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
 	}
 	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
-		return cfg.c.GetEvaluatedSexpr(ctx, sexpr.Smk, zid, api.PartZettel)
+		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
 	}
 	setupSlideSet(slides, o.List, getZettel, zGetZettel, sGetZettel)
 	ren.Prepare(ctx, cfg)
