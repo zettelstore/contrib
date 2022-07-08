@@ -56,7 +56,7 @@ func zEncodeInline(baseV *htmlV, in zjson.Array) string {
 }
 func (v *htmlV) TraverseBlock(bn zjson.Array) { v.enc.TraverseBlock(bn) }
 
-func evaluateInline(baseV *htmlV, in sxpf.Sequence) string {
+func evaluateInline(baseV *htmlV, in *sxpf.Pair) string {
 	if baseV == nil {
 		return html.EvaluateInline(nil, in, false, false)
 	}

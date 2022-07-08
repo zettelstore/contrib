@@ -41,7 +41,7 @@ const (
 type slide struct {
 	zid      api.ZettelID // The zettel identifier
 	zTitle   zjson.Array
-	title    sxpf.Sequence
+	title    *sxpf.Pair
 	lang     string
 	role     string
 	zContent zjson.Array // Zettel / slide content
@@ -347,7 +347,7 @@ func (s *slideSet) ZSubtitle() zjson.Array {
 	}
 	return nil
 }
-func (s *slideSet) Title(smk sxpf.SymbolMaker) sxpf.Sequence { return getSlideTitle(s.sxMeta) }
+func (s *slideSet) Title(smk sxpf.SymbolMaker) *sxpf.Pair { return getSlideTitle(s.sxMeta) }
 
 func (s *slideSet) Lang() string { return s.zMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
@@ -433,6 +433,23 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 
 	s.isCompleted = true
 }
+
+type collectState struct {
+	stack   []api.ZettelID
+	visited map[api.ZettelID]*slide
+}
+
+func newCollectState(s *slideSet) collectState {
+	var result collectState
+	zids := s.SlideZids()
+	for i := len(zids) - 1; i >= 0; i-- {
+		result.push(zids[i])
+	}
+	// log.Println("STAC", result.stack)
+	result.visited = make(map[api.ZettelID]*slide, len(zids)+16)
+	return result
+}
+func (cs *collectState) push(zid api.ZettelID) { cs.stack = append(cs.stack, zid) }
 
 type collectVisitor struct {
 	getZettel  getZettelContentFunc
@@ -553,13 +570,13 @@ func zGetZettelTitleZid(zm zjson.Meta, zid api.ZettelID) zjson.Array {
 	return zjson.Array{zjson.Object{zjson.NameType: zjson.TypeText, zjson.NameString: string(zid)}}
 }
 
-func getSlideTitle(sxMeta sexpr.Meta) sxpf.Sequence {
-	if title := sxMeta.GetSequence(KeySlideTitle); title != nil && !title.IsEmpty() {
+func getSlideTitle(sxMeta sexpr.Meta) *sxpf.Pair {
+	if title := sxMeta.GetPair(KeySlideTitle); title != nil && !title.IsEmpty() {
 		return title
 	}
-	return sxMeta.GetSequence(api.KeyTitle)
+	return sxMeta.GetPair(api.KeyTitle)
 }
-func getSlideTitleZid(sxMeta sexpr.Meta, zid api.ZettelID) sxpf.Sequence {
+func getSlideTitleZid(sxMeta sexpr.Meta, zid api.ZettelID) *sxpf.Pair {
 	if title := getSlideTitle(sxMeta); title != nil && !title.IsEmpty() {
 		return title
 	}
