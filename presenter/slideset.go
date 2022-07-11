@@ -72,6 +72,7 @@ func (sl *slide) MakeChild(zTitle, zContent zjson.Array) *slide {
 func (sl *slide) ZTitle() zjson.Array   { return sl.zTitle }
 func (sl *slide) Lang() string          { return sl.lang }
 func (sl *slide) ZContent() zjson.Array { return sl.zContent }
+func (sl *slide) Content() sxpf.Value   { return sl.content }
 
 func (sl *slide) HasSlideRole(sr string) bool {
 	if sr == "" {
@@ -404,9 +405,9 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 	if s.isCompleted {
 		return
 	}
-	v := collectVisitor{getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr, s: s, state: newCollectState(s)}
+	env := collectEnv{s: s, state: newCollectState(s), getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr}
 	for {
-		zid, found := v.state.pop()
+		zid, found := env.state.pop()
 		if !found {
 			break
 		}
@@ -417,9 +418,10 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 		if sl == nil {
 			panic(zid)
 		}
-		v.state.mark(zid)
-		zjson.WalkBlock(&v, sl.ZContent(), 0)
+		env.state.mark(zid)
+		sxpf.Evaluate(&env, sl.Content())
 	}
+	s.hasMermaid = env.hasMermaid
 	s.isCompleted = true
 }
 
@@ -434,7 +436,6 @@ func newCollectState(s *slideSet) collectState {
 	for i := len(zids) - 1; i >= 0; i-- {
 		result.push(zids[i])
 	}
-	// log.Println("STAC", result.stack)
 	result.visited = make(map[api.ZettelID]struct{}, len(zids)+16)
 	return result
 }
@@ -457,62 +458,76 @@ func (cs *collectState) isMarked(zid api.ZettelID) bool {
 	return found
 }
 
-type collectVisitor struct {
+type collectEnv struct {
+	s          *slideSet
+	state      collectState
 	getZettel  getZettelContentFunc
 	zGetZettel zGetZettelFunc
 	sGetZettel sGetZettelFunc
-	s          *slideSet
-	// stack      []api.ZettelID
-	// visited    map[api.ZettelID]*slide
-	state collectState
+	hasMermaid bool
 }
 
-// func (v *collectVisitor) Push(zid api.ZettelID) { v.stack = append(v.stack, zid) }
-
-func (v *collectVisitor) BlockArray(a zjson.Array, pos int) zjson.CloseFunc  { return nil }
-func (v *collectVisitor) InlineArray(a zjson.Array, pos int) zjson.CloseFunc { return nil }
-func (v *collectVisitor) ItemArray(a zjson.Array, pos int) zjson.CloseFunc   { return nil }
-func (v *collectVisitor) Unexpected(val zjson.Value, pos int, exp string)    {}
-func (v *collectVisitor) BlockObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
-	if t == zjson.TypeVerbatimEval {
-		if syntax, found := zjson.GetAttributes(obj).Get(""); found && syntax == SyntaxMermaid {
-			v.s.hasMermaid = true
-		}
+func (ce *collectEnv) LookupForm(sym *sxpf.Symbol) (sxpf.Form, error) {
+	switch sym {
+	case sexpr.SymVerbatimEval:
+		return verbEvalFn, nil
+	case sexpr.SymLinkZettel:
+		return linkZettelFn, nil
+	case sexpr.SymEmbed:
+		return embedFn, nil
 	}
-	return true, nil
+	return ignoreFn, nil
 }
 
-func (v *collectVisitor) InlineObject(t string, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
-	switch t {
-	case zjson.TypeLink:
-		if q := zjson.GetString(obj, zjson.NameString2); q != zjson.RefStateZettel {
-			break
-		}
-		s := zjson.GetString(obj, zjson.NameString)
-		zid := api.ZettelID(s)
-		if zid.IsValid() {
-			v.visitZettel(zid)
-			break
-		}
-		log.Println("LINK", pos, s, obj)
-	case zjson.TypeEmbed:
-		s := zjson.GetString(obj, zjson.NameString)
-		zid := api.ZettelID(s)
-		if zid.IsValid() {
-			v.visitImage(zid, zjson.GetString(obj, zjson.NameString2))
-			break
-		}
-		log.Println("EMBE", pos, obj)
-	}
-	return true, nil
-}
+var (
+	verbEvalFn = sxpf.NewBuiltin("verbatim-eval", false, 1, -1,
+		func(env sxpf.Environment, args []sxpf.Value) (sxpf.Value, error) {
+			if p, ok := args[0].(*sxpf.Pair); ok {
+				if syntax, found := sexpr.GetAttributes(p).Get(""); found && syntax == SyntaxMermaid {
+					env.(*collectEnv).hasMermaid = true
+				}
+			}
+			return nil, nil
+		})
+	linkZettelFn = sxpf.NewBuiltin("link-zettel", true, 2, -1,
+		func(env sxpf.Environment, args []sxpf.Value) (sxpf.Value, error) {
+			if zidVal, ok := args[1].(*sxpf.String); ok {
+				zid := api.ZettelID(zidVal.Value())
+				if zid.IsValid() {
+					env.(*collectEnv).visitZettel(zid)
+				}
+			}
+			return nil, nil
+		})
+	embedFn = sxpf.NewBuiltin("embed-inline", true, 3, -1,
+		func(env sxpf.Environment, args []sxpf.Value) (sxpf.Value, error) {
+			if ref, ok := args[1].(*sxpf.Pair); ok && ref.GetFirst() == sexpr.SymRefStateZettel {
+				if tail := ref.GetTail(); tail != nil {
+					if zidVal, ok := tail.GetFirst().(*sxpf.String); ok {
+						zid := api.ZettelID(zidVal.Value())
+						if strSyntax, ok := args[2].(*sxpf.String); ok && zid.IsValid() {
+							env.(*collectEnv).visitImage(zid, strSyntax.GetValue())
+						}
+					}
+				}
+			}
+			return nil, nil
+		})
+	ignoreFn = sxpf.NewBuiltin("traverse", false, 0, -1,
+		func(sxpf.Environment, []sxpf.Value) (sxpf.Value, error) { return nil, nil })
+)
 
-func (v *collectVisitor) visitZettel(zid api.ZettelID) {
-	if v.state.isMarked(zid) || v.s.GetSlide(zid) != nil {
+func (ce *collectEnv) EvaluatePair(p *sxpf.Pair) (sxpf.Value, error) {
+	return sxpf.EvaluateCallOrList(ce, p)
+}
+func (ce *collectEnv) EvaluateSymbol(sym *sxpf.Symbol) (sxpf.Value, error) { return sym, nil }
+func (ce *collectEnv) EvaluateOther(val sxpf.Value) (sxpf.Value, error)    { return val, nil }
+
+func (ce *collectEnv) visitZettel(zid api.ZettelID) {
+	if ce.state.isMarked(zid) || ce.s.GetSlide(zid) != nil {
 		return
 	}
-	// log.Println("ZETT", zid)
-	zjZettel, err := v.zGetZettel(zid)
+	zjZettel, err := ce.zGetZettel(zid)
 	if err != nil {
 		log.Println("GETZ", err)
 		// TODO: add artificial slide with error message / data
@@ -524,7 +539,7 @@ func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 		log.Println("MECO", zid)
 		return
 	}
-	sxZettel, err := v.sGetZettel(zid)
+	sxZettel, err := ce.sGetZettel(zid)
 	if err != nil {
 		log.Println("GETS", err)
 		// TODO: add artificial slide with error message / data
@@ -541,25 +556,25 @@ func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 		// log.Println("VISZ", zid, vis)
 		return
 	}
-	v.s.AdditionalSlide(zid, slMeta, slContent, sxMeta, sxContent)
-	v.state.push(zid)
+	ce.s.AdditionalSlide(zid, slMeta, slContent, sxMeta, sxContent)
+	ce.state.push(zid)
 }
 
-func (v *collectVisitor) visitImage(zid api.ZettelID, syntax string) {
-	if v.s.HasImage(zid) {
+func (ce *collectEnv) visitImage(zid api.ZettelID, syntax string) {
+	if ce.s.HasImage(zid) {
 		log.Println("DUPI", zid)
 		return
 	}
 
 	// TODO: check for valid visibility
 
-	data, err := v.getZettel(zid)
+	data, err := ce.getZettel(zid)
 	if err != nil {
 		log.Println("GETI", err)
 		// TODO: add artificial image with error message / zid
 		return
 	}
-	v.s.AddImage(zid, syntax, data)
+	ce.s.AddImage(zid, syntax, data)
 }
 
 // Utility function to retrieve some slide/slideset metadata.
