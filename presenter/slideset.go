@@ -404,39 +404,28 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 	if s.isCompleted {
 		return
 	}
-	v := collectVisitor{getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr, s: s}
-	zids := s.SlideZids()
-	for i := len(zids) - 1; i >= 0; i-- {
-		v.Push(zids[i])
-	}
-	// log.Println("STAC", v.stack)
-	v.visited = make(map[api.ZettelID]*slide, len(zids)+16)
+	v := collectVisitor{getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr, s: s, state: newCollectState(s)}
 	for {
-		l := len(v.stack)
-		if l == 0 {
+		zid, found := v.state.pop()
+		if !found {
 			break
 		}
-		zid := v.stack[l-1]
-		v.stack = v.stack[0 : l-1]
-		// log.Println("ZIDD", zid)
-		if _, found := v.visited[zid]; found {
+		if zid == api.InvalidZID {
 			continue
 		}
 		sl := s.GetSlide(zid)
 		if sl == nil {
 			panic(zid)
 		}
-		v.visited[zid] = sl
-
+		v.state.mark(zid)
 		zjson.WalkBlock(&v, sl.ZContent(), 0)
 	}
-
 	s.isCompleted = true
 }
 
 type collectState struct {
 	stack   []api.ZettelID
-	visited map[api.ZettelID]*slide
+	visited map[api.ZettelID]struct{}
 }
 
 func newCollectState(s *slideSet) collectState {
@@ -446,21 +435,39 @@ func newCollectState(s *slideSet) collectState {
 		result.push(zids[i])
 	}
 	// log.Println("STAC", result.stack)
-	result.visited = make(map[api.ZettelID]*slide, len(zids)+16)
+	result.visited = make(map[api.ZettelID]struct{}, len(zids)+16)
 	return result
 }
 func (cs *collectState) push(zid api.ZettelID) { cs.stack = append(cs.stack, zid) }
+func (cs *collectState) pop() (api.ZettelID, bool) {
+	lp := len(cs.stack) - 1
+	if lp < 0 {
+		return api.InvalidZID, false
+	}
+	zid := cs.stack[lp]
+	cs.stack = cs.stack[0:lp]
+	if _, found := cs.visited[zid]; found {
+		return api.InvalidZID, true
+	}
+	return zid, true
+}
+func (cs *collectState) mark(zid api.ZettelID) { cs.visited[zid] = struct{}{} }
+func (cs *collectState) isMarked(zid api.ZettelID) bool {
+	_, found := cs.visited[zid]
+	return found
+}
 
 type collectVisitor struct {
 	getZettel  getZettelContentFunc
 	zGetZettel zGetZettelFunc
 	sGetZettel sGetZettelFunc
 	s          *slideSet
-	stack      []api.ZettelID
-	visited    map[api.ZettelID]*slide
+	// stack      []api.ZettelID
+	// visited    map[api.ZettelID]*slide
+	state collectState
 }
 
-func (v *collectVisitor) Push(zid api.ZettelID) { v.stack = append(v.stack, zid) }
+// func (v *collectVisitor) Push(zid api.ZettelID) { v.stack = append(v.stack, zid) }
 
 func (v *collectVisitor) BlockArray(a zjson.Array, pos int) zjson.CloseFunc  { return nil }
 func (v *collectVisitor) InlineArray(a zjson.Array, pos int) zjson.CloseFunc { return nil }
@@ -501,7 +508,7 @@ func (v *collectVisitor) InlineObject(t string, obj zjson.Object, pos int) (bool
 }
 
 func (v *collectVisitor) visitZettel(zid api.ZettelID) {
-	if _, found := v.visited[zid]; found || v.s.GetSlide(zid) != nil {
+	if v.state.isMarked(zid) || v.s.GetSlide(zid) != nil {
 		return
 	}
 	// log.Println("ZETT", zid)
@@ -535,7 +542,7 @@ func (v *collectVisitor) visitZettel(zid api.ZettelID) {
 		return
 	}
 	v.s.AdditionalSlide(zid, slMeta, slContent, sxMeta, sxContent)
-	v.Push(zid)
+	v.state.push(zid)
 }
 
 func (v *collectVisitor) visitImage(zid api.ZettelID, syntax string) {
