@@ -405,9 +405,10 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 	if s.isCompleted {
 		return
 	}
-	env := collectEnv{s: s, state: newCollectState(s), getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr}
+	env := collectEnv{s: s, getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr}
+	env.initCollection(s)
 	for {
-		zid, found := env.state.pop()
+		zid, found := env.pop()
 		if !found {
 			break
 		}
@@ -418,52 +419,46 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 		if sl == nil {
 			panic(zid)
 		}
-		env.state.mark(zid)
-		sxpf.Evaluate(&env, sl.Content())
+		env.mark(zid)
+		sxpf.Eval(&env, sl.Content())
 	}
 	s.hasMermaid = env.hasMermaid
 	s.isCompleted = true
 }
 
-type collectState struct {
-	stack   []api.ZettelID
-	visited map[api.ZettelID]struct{}
-}
-
-func newCollectState(s *slideSet) collectState {
-	var result collectState
+func (ce *collectEnv) initCollection(s *slideSet) {
 	zids := s.SlideZids()
 	for i := len(zids) - 1; i >= 0; i-- {
-		result.push(zids[i])
+		ce.push(zids[i])
 	}
-	result.visited = make(map[api.ZettelID]struct{}, len(zids)+16)
-	return result
+	ce.visited = make(map[api.ZettelID]struct{}, len(zids)+16)
 }
-func (cs *collectState) push(zid api.ZettelID) { cs.stack = append(cs.stack, zid) }
-func (cs *collectState) pop() (api.ZettelID, bool) {
-	lp := len(cs.stack) - 1
+func (ce *collectEnv) push(zid api.ZettelID) { ce.stack = append(ce.stack, zid) }
+func (ce *collectEnv) pop() (api.ZettelID, bool) {
+	lp := len(ce.stack) - 1
 	if lp < 0 {
 		return api.InvalidZID, false
 	}
-	zid := cs.stack[lp]
-	cs.stack = cs.stack[0:lp]
-	if _, found := cs.visited[zid]; found {
+	zid := ce.stack[lp]
+	ce.stack = ce.stack[0:lp]
+	if _, found := ce.visited[zid]; found {
 		return api.InvalidZID, true
 	}
 	return zid, true
 }
-func (cs *collectState) mark(zid api.ZettelID) { cs.visited[zid] = struct{}{} }
-func (cs *collectState) isMarked(zid api.ZettelID) bool {
-	_, found := cs.visited[zid]
+func (ce *collectEnv) mark(zid api.ZettelID) { ce.visited[zid] = struct{}{} }
+func (ce *collectEnv) isMarked(zid api.ZettelID) bool {
+	_, found := ce.visited[zid]
 	return found
 }
 
 type collectEnv struct {
 	s          *slideSet
-	state      collectState
 	getZettel  getZettelContentFunc
 	zGetZettel zGetZettelFunc
 	sGetZettel sGetZettelFunc
+	stack      []api.ZettelID
+	visited    map[api.ZettelID]struct{}
 	hasMermaid bool
 }
 
@@ -517,14 +512,14 @@ var (
 		func(sxpf.Environment, []sxpf.Value) (sxpf.Value, error) { return nil, nil })
 )
 
-func (ce *collectEnv) EvaluatePair(p *sxpf.Pair) (sxpf.Value, error) {
-	return sxpf.EvaluateCallOrList(ce, p)
+func (ce *collectEnv) EvalPair(p *sxpf.Pair) (sxpf.Value, error) {
+	return nil, sxpf.ExecCallOrList(ce, p)
 }
-func (ce *collectEnv) EvaluateSymbol(sym *sxpf.Symbol) (sxpf.Value, error) { return sym, nil }
-func (ce *collectEnv) EvaluateOther(val sxpf.Value) (sxpf.Value, error)    { return val, nil }
+func (ce *collectEnv) EvalSymbol(sym *sxpf.Symbol) (sxpf.Value, error) { return sym, nil }
+func (ce *collectEnv) EvalOther(val sxpf.Value) (sxpf.Value, error)    { return val, nil }
 
 func (ce *collectEnv) visitZettel(zid api.ZettelID) {
-	if ce.state.isMarked(zid) || ce.s.GetSlide(zid) != nil {
+	if ce.isMarked(zid) || ce.s.GetSlide(zid) != nil {
 		return
 	}
 	zjZettel, err := ce.zGetZettel(zid)
@@ -557,7 +552,7 @@ func (ce *collectEnv) visitZettel(zid api.ZettelID) {
 		return
 	}
 	ce.s.AdditionalSlide(zid, slMeta, slContent, sxMeta, sxContent)
-	ce.state.push(zid)
+	ce.push(zid)
 }
 
 func (ce *collectEnv) visitImage(zid api.ZettelID, syntax string) {
