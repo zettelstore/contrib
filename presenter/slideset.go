@@ -476,8 +476,8 @@ func (ce *collectEnv) LookupForm(sym *sxpf.Symbol) (sxpf.Form, error) {
 
 var (
 	verbEvalFn = sxpf.NewBuiltin("verbatim-eval", false, 1, -1,
-		func(env sxpf.Environment, args []sxpf.Value) (sxpf.Value, error) {
-			if p, ok := args[0].(*sxpf.Pair); ok {
+		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+			if p, ok := args.GetFirst().(*sxpf.Pair); ok {
 				if syntax, found := sexpr.GetAttributes(p).Get(""); found && syntax == SyntaxMermaid {
 					env.(*collectEnv).hasMermaid = true
 				}
@@ -485,8 +485,8 @@ var (
 			return nil, nil
 		})
 	linkZettelFn = sxpf.NewBuiltin("link-zettel", true, 2, -1,
-		func(env sxpf.Environment, args []sxpf.Value) (sxpf.Value, error) {
-			if zidVal, ok := args[1].(*sxpf.String); ok {
+		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+			if zidVal, ok := args.GetSlice()[1].(*sxpf.String); ok {
 				zid := api.ZettelID(zidVal.Value())
 				if zid.IsValid() {
 					env.(*collectEnv).visitZettel(zid)
@@ -495,12 +495,13 @@ var (
 			return nil, nil
 		})
 	embedFn = sxpf.NewBuiltin("embed-inline", true, 3, -1,
-		func(env sxpf.Environment, args []sxpf.Value) (sxpf.Value, error) {
-			if ref, ok := args[1].(*sxpf.Pair); ok && ref.GetFirst() == sexpr.SymRefStateZettel {
+		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+			sArgs := args.GetSlice()
+			if ref, ok := sArgs[1].(*sxpf.Pair); ok && ref.GetFirst() == sexpr.SymRefStateZettel {
 				if tail := ref.GetTail(); tail != nil {
 					if zidVal, ok := tail.GetFirst().(*sxpf.String); ok {
 						zid := api.ZettelID(zidVal.Value())
-						if strSyntax, ok := args[2].(*sxpf.String); ok && zid.IsValid() {
+						if strSyntax, ok := sArgs[2].(*sxpf.String); ok && zid.IsValid() {
 							env.(*collectEnv).visitImage(zid, strSyntax.GetValue())
 						}
 					}
@@ -509,7 +510,7 @@ var (
 			return nil, nil
 		})
 	ignoreFn = sxpf.NewBuiltin("traverse", false, 0, -1,
-		func(sxpf.Environment, []sxpf.Value) (sxpf.Value, error) { return nil, nil })
+		func(sxpf.Environment, *sxpf.Pair, int) (sxpf.Value, error) { return nil, nil })
 )
 
 func (ce *collectEnv) EvalPair(p *sxpf.Pair) (sxpf.Value, error) {
