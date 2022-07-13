@@ -486,8 +486,8 @@ var (
 		})
 	linkZettelFn = sxpf.NewBuiltin("link-zettel", true, 2, -1,
 		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
-			if zidVal, ok := args.GetSlice()[1].(*sxpf.String); ok {
-				zid := api.ZettelID(zidVal.Value())
+			if zidVal, err := args.GetTail().GetString(); err == nil {
+				zid := api.ZettelID(zidVal)
 				if zid.IsValid() {
 					env.(*collectEnv).visitZettel(zid)
 				}
@@ -496,14 +496,12 @@ var (
 		})
 	embedFn = sxpf.NewBuiltin("embed-inline", true, 3, -1,
 		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
-			sArgs := args.GetSlice()
-			if ref, ok := sArgs[1].(*sxpf.Pair); ok && ref.GetFirst() == sexpr.SymRefStateZettel {
-				if tail := ref.GetTail(); tail != nil {
-					if zidVal, ok := tail.GetFirst().(*sxpf.String); ok {
-						zid := api.ZettelID(zidVal.Value())
-						if strSyntax, ok := sArgs[2].(*sxpf.String); ok && zid.IsValid() {
-							env.(*collectEnv).visitImage(zid, strSyntax.GetValue())
-						}
+			argRef := args.GetTail()
+			if ref, err := argRef.GetPair(); err == nil && ref.GetFirst() == sexpr.SymRefStateZettel {
+				if zidVal, ok := ref.GetTail().GetString(); ok == nil {
+					zid := api.ZettelID(zidVal)
+					if syntax, err := argRef.GetTail().GetString(); err == nil && zid.IsValid() {
+						env.(*collectEnv).visitImage(zid, syntax)
 					}
 				}
 			}
