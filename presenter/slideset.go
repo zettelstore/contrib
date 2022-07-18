@@ -477,12 +477,10 @@ func (ce *collectEnv) LookupForm(sym *sxpf.Symbol) (sxpf.Form, error) {
 }
 
 var (
-	verbEvalFn = sxpf.NewBuiltin("verbatim-eval", false, 1, -1,
+	verbEvalFn = sxpf.NewBuiltin("verbatim-eval", true, 1, -1,
 		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
-			if p, ok := args.GetFirst().(*sxpf.Pair); ok {
-				if syntax, found := sexpr.GetAttributes(p).Get(""); found && syntax == SyntaxMermaid {
-					env.(*collectEnv).hasMermaid = true
-				}
+			if hasMermaidAttribute(args) {
+				env.(*collectEnv).hasMermaid = true
 			}
 			return nil, nil
 		})
@@ -512,6 +510,15 @@ var (
 	ignoreFn = sxpf.NewBuiltin("traverse", false, 0, -1,
 		func(sxpf.Environment, *sxpf.Pair, int) (sxpf.Value, error) { return nil, nil })
 )
+
+func hasMermaidAttribute(args *sxpf.Pair) bool {
+	if p, ok := args.GetFirst().(*sxpf.Pair); ok {
+		if syntax, found := sexpr.GetAttributes(p).Get(""); found && syntax == SyntaxMermaid {
+			return true
+		}
+	}
+	return false
+}
 
 func (ce *collectEnv) EvalPair(p *sxpf.Pair) (sxpf.Value, error) {
 	return nil, sxpf.ExecCallOrList(ce, p)

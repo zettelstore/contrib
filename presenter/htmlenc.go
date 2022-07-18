@@ -48,6 +48,8 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 	env.Builtins.Set(sexpr.SymLinkZettel, sxpf.NewBuiltin("linkZ", true, 2, -1, v.generateLinkZettel))
 	env.Builtins.Set(sexpr.SymLinkExternal, sxpf.NewBuiltin("linkE", true, 2, -1, v.generateLinkExternal))
 	env.Builtins.Set(sexpr.SymEmbed, sxpf.NewBuiltin("embed", true, 3, -1, v.generateEmbed))
+
+	env.Builtins.Set(sexpr.SymVerbatimEval, v.makeEvaluateVerbatimEval(env.Builtins.MustLookupForm(sexpr.SymVerbatimEval)))
 	return v
 }
 
@@ -143,6 +145,21 @@ func (v *htmlV) makeVisitVerbatimEval(visitVerbatimCode html.TypeFunc) html.Type
 		}
 		return visitVerbatimCode(enc, obj, pos)
 	}
+}
+
+func (v *htmlV) makeEvaluateVerbatimEval(oldForm sxpf.Form) sxpf.Form {
+	return sxpf.NewBuiltin(
+		"verb-eval", true, 1, -1,
+		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+			if hasMermaidAttribute(args) {
+				v.hasMermaid = true
+				v.WriteString("<div class=\"mermaid\">\n")
+				v.WriteString(v.env.GetString(args.GetTail()))
+				v.WriteString("</div>")
+				return nil, nil
+			}
+			return oldForm.Call(env, args)
+		})
 }
 
 func (v *htmlV) visitLink(enc *html.Encoder, obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
