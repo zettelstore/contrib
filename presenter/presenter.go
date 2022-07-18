@@ -247,27 +247,16 @@ func reportRetrieveError(w http.ResponseWriter, zid api.ZettelID, err error, obj
 
 func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesSetRole string) {
 	ctx := r.Context()
-	zjZettel, err := c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
-	if err != nil {
-		reportRetrieveError(w, zid, err, "zettel")
-		return
-	}
-	zm, zContent := zjson.GetMetaContent(zjZettel)
-	if zm == nil || zContent == nil {
-		http.Error(w, fmt.Sprintf("Zettel %s has no meta/content", zid), http.StatusInternalServerError)
-		return
-	}
-
 	sxZettel, err := c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
 	if err != nil {
 		reportRetrieveError(w, zid, err, "zettel")
 		return
 	}
-	sxMeta, _ := sexpr.GetMetaContent(sxZettel)
+	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
 
 	role := sxMeta.GetString(api.KeyRole)
 	if role == slidesSetRole {
-		if slides := processSlideTOC(ctx, c, zid, zm, sxMeta); slides != nil {
+		if slides := processSlideTOC(ctx, c, zid, nil, sxMeta); slides != nil {
 			renderSlideTOC(w, slides)
 			return
 		}
@@ -298,8 +287,8 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		io.WriteString(w, "</ul>\n")
 	}
 
-	he.TraverseBlock(zContent)
-	he.ZWriteEndnotes()
+	he.EvaluateBlock(sxContent)
+	he.WriteEndnotes()
 	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
 	writeHTMLFooter(w, he.hasMermaid)
 }
@@ -322,29 +311,29 @@ func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, zm
 }
 
 func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
-	offset, zTitle, htmlTitle, zSubtitle := 1, slides.ZTitle(), "", slides.ZSubtitle()
-	if len(zTitle) > 0 {
+	offset, title, htmlTitle, subtitle := 1, slides.Title(), "", slides.Subtitle()
+	if !title.IsEmpty() {
 		offset++
-		htmlTitle = zEncodeInline(nil, zTitle)
+		htmlTitle = evaluateInline(nil, title)
 	}
 
 	writeHTMLHeader(w, slides.Lang(), "")
-	zWriteTitle(w, zTitle)
+	writeTitle(w, title)
 	writeHTMLBody(w)
-	if len(zTitle) > 0 {
+	if !title.IsEmpty() {
 		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlTitle)
-		if len(zSubtitle) > 0 {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", zEncodeInline(nil, zSubtitle))
+		if !subtitle.IsEmpty() {
+			fmt.Fprintf(w, "<h2>%s</h2>\n", evaluateInline(nil, subtitle))
 		}
 	}
 	io.WriteString(w, "<ol>\n")
-	if len(zTitle) > 0 {
+	if !title.IsEmpty() {
 		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(1)\">%s</a></li>\n", slides.zid, htmlTitle)
 	}
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		var slideTitle string
-		if zt := si.Slide.zTitle; len(zt) > 0 {
-			slideTitle = zEncodeInline(nil, zt)
+		if t := si.Slide.title; !t.IsEmpty() {
+			slideTitle = evaluateInline(nil, t)
 		} else {
 			slideTitle = string(si.Slide.zid)
 		}
@@ -489,7 +478,7 @@ func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
 	}
 	he.SetUnique(fmt.Sprintf("%d:", si.Number))
 	he.TraverseBlock(si.Slide.zContent)
-	he.ZWriteEndnotes()
+	he.enc.WriteEndnotes()
 	fmt.Fprintf(w, "\n<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
 }
 

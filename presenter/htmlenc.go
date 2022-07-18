@@ -45,13 +45,16 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 	enc.SetTypeFunc(zjson.TypeEmbed, v.visitEmbed)
 	enc.SetTypeFunc(zjson.TypeLiteralComment, html.DoNothingTypeFunc)
 
+	env.Builtins.Set(sexpr.SymVerbatimEval, v.makeEvaluateVerbatimEval(env.Builtins.MustLookupForm(sexpr.SymVerbatimEval)))
+	env.Builtins.Set(sexpr.SymVerbatimComment, sxpf.NewBuiltin("verb-comm", true, 1, -1, formNothing))
 	env.Builtins.Set(sexpr.SymLinkZettel, sxpf.NewBuiltin("linkZ", true, 2, -1, v.generateLinkZettel))
 	env.Builtins.Set(sexpr.SymLinkExternal, sxpf.NewBuiltin("linkE", true, 2, -1, v.generateLinkExternal))
 	env.Builtins.Set(sexpr.SymEmbed, sxpf.NewBuiltin("embed", true, 3, -1, v.generateEmbed))
-
-	env.Builtins.Set(sexpr.SymVerbatimEval, v.makeEvaluateVerbatimEval(env.Builtins.MustLookupForm(sexpr.SymVerbatimEval)))
+	env.Builtins.Set(sexpr.SymLiteralComment, sxpf.NewBuiltin("lit-comm", true, 1, -1, formNothing))
 	return v
 }
+
+func formNothing(sxpf.Environment, *sxpf.Pair, int) (sxpf.Value, error) { return nil, nil }
 
 func (v *htmlV) SetUnique(s string)            { v.enc.SetUnique(s) }
 func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
@@ -88,13 +91,10 @@ type htmlV struct {
 // true, false for handout
 // false, false for manual (?)
 
-func (v *htmlV) HasMermaid() bool { return v.hasMermaid }
-
 func (v *htmlV) Write(b []byte) (int, error)       { return v.enc.Write(b) }
 func (v *htmlV) WriteString(s string) (int, error) { return v.enc.WriteString(s) }
 
-func (v *htmlV) ZWriteEndnotes() { v.enc.WriteEndnotes() }
-func (v *htmlV) WriteEndnotes()  { v.env.WriteEndnotes() }
+func (v *htmlV) WriteEndnotes() { v.env.WriteEndnotes() }
 
 func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
 	return func(enc *html.Encoder, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
