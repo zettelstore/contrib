@@ -45,10 +45,10 @@ type slide struct {
 	lang     string
 	role     string
 	zContent zjson.Array // Zettel / slide content
-	content  sxpf.Value
+	content  *sxpf.Pair
 }
 
-func newSlide(zid api.ZettelID, zMeta zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent sxpf.Value) *slide {
+func newSlide(zid api.ZettelID, zMeta zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent *sxpf.Pair) *slide {
 	return &slide{
 		zid:      zid,
 		zTitle:   zGetSlideTitle(zMeta),
@@ -59,20 +59,16 @@ func newSlide(zid api.ZettelID, zMeta zjson.Meta, zContent zjson.Array, sxMeta s
 		content:  sxContent,
 	}
 }
-func (sl *slide) MakeChild(zTitle, zContent zjson.Array) *slide {
+func (sl *slide) MakeChild(zTitle, zContent zjson.Array, sxContent *sxpf.Pair) *slide {
 	return &slide{
 		zid:      sl.zid,
 		zTitle:   zTitle,
 		lang:     sl.lang,
 		role:     sl.role,
 		zContent: zContent,
+		content:  sxContent,
 	}
 }
-
-func (sl *slide) ZTitle() zjson.Array   { return sl.zTitle }
-func (sl *slide) Lang() string          { return sl.lang }
-func (sl *slide) ZContent() zjson.Array { return sl.zContent }
-func (sl *slide) Content() sxpf.Value   { return sl.content }
 
 func (sl *slide) HasSlideRole(sr string) bool {
 	if sr == "" {
@@ -116,7 +112,7 @@ func (si *slideInfo) LastChild() *slideInfo {
 
 func (si *slideInfo) SplitChildren() {
 	var oldest, youngest *slideInfo
-	zTitle := si.Slide.ZTitle()
+	zTitle := si.Slide.zTitle
 	var zContent zjson.Array
 	for _, zbn := range si.Slide.zContent {
 		zobj := zjson.MakeObject(zbn)
@@ -139,7 +135,7 @@ func (si *slideInfo) SplitChildren() {
 		}
 		slInfo := &slideInfo{
 			prev:  youngest,
-			Slide: si.Slide.MakeChild(zTitle, zContent),
+			Slide: si.Slide.MakeChild(zTitle, zContent, nil),
 		}
 		zContent = nil
 		if oldest == nil {
@@ -152,12 +148,12 @@ func (si *slideInfo) SplitChildren() {
 		zTitle = zNextTitle
 	}
 	if oldest == nil {
-		oldest = &slideInfo{Slide: si.Slide.MakeChild(zTitle, zContent)}
+		oldest = &slideInfo{Slide: si.Slide.MakeChild(zTitle, zContent, nil)}
 		youngest = oldest
 	} else {
 		slInfo := &slideInfo{
 			prev:  youngest,
-			Slide: si.Slide.MakeChild(zTitle, zContent),
+			Slide: si.Slide.MakeChild(zTitle, zContent, nil),
 		}
 		if youngest != nil {
 			youngest.next = slInfo
@@ -348,7 +344,13 @@ func (s *slideSet) ZSubtitle() zjson.Array {
 	}
 	return nil
 }
-func (s *slideSet) Title(smk sxpf.SymbolMaker) *sxpf.Pair { return getSlideTitle(s.sxMeta) }
+func (s *slideSet) Title() *sxpf.Pair { return getSlideTitle(s.sxMeta) }
+func (s *slideSet) Subtitle() *sxpf.Pair {
+	if subTitle := s.sxMeta.GetPair(KeySubTitle); !subTitle.IsEmpty() {
+		return subTitle
+	}
+	return nil
+}
 
 func (s *slideSet) Lang() string { return s.zMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
@@ -394,7 +396,7 @@ func (s *slideSet) AddSlide(zid api.ZettelID, zGetZettel zGetZettelFunc, sGetZet
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) AdditionalSlide(zid api.ZettelID, zm zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent sxpf.Value) {
+func (s *slideSet) AdditionalSlide(zid api.ZettelID, zm zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent *sxpf.Pair) {
 	// TODO: if first, add slide with text "additional content"
 	sl := newSlide(zid, zm, zContent, sxMeta, sxContent)
 	s.seqSlide = append(s.seqSlide, sl)
@@ -420,7 +422,7 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGe
 			panic(zid)
 		}
 		env.mark(zid)
-		sxpf.Eval(&env, sl.Content())
+		sxpf.Eval(&env, sl.content)
 	}
 	s.hasMermaid = env.hasMermaid
 	s.isCompleted = true

@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 
 	"codeberg.org/t73fde/sxpf"
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/html"
+	"zettelstore.de/c/sexpr"
 	"zettelstore.de/c/zjson"
 )
 
@@ -42,6 +44,10 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 	enc.SetTypeFunc(zjson.TypeLink, v.visitLink)
 	enc.SetTypeFunc(zjson.TypeEmbed, v.visitEmbed)
 	enc.SetTypeFunc(zjson.TypeLiteralComment, html.DoNothingTypeFunc)
+
+	env.Builtins.Set(sexpr.SymLinkZettel, sxpf.NewBuiltin("linkZ", true, 2, -1, v.generateLinkZettel))
+	env.Builtins.Set(sexpr.SymLinkExternal, sxpf.NewBuiltin("linkE", true, 2, -1, v.generateLinkExternal))
+	env.Builtins.Set(sexpr.SymEmbed, sxpf.NewBuiltin("embed", true, 3, -1, v.generateEmbed))
 	return v
 }
 
@@ -62,6 +68,7 @@ func evaluateInline(baseV *htmlV, in *sxpf.Pair) string {
 	}
 	return html.EvaluateInline(baseV.env, in, true, true)
 }
+func (v *htmlV) EvaluateBlock(bn *sxpf.Pair) { v.env.EvalPair(bn) }
 
 type htmlV struct {
 	env            *html.EncEnvironment
@@ -84,7 +91,8 @@ func (v *htmlV) HasMermaid() bool { return v.hasMermaid }
 func (v *htmlV) Write(b []byte) (int, error)       { return v.enc.Write(b) }
 func (v *htmlV) WriteString(s string) (int, error) { return v.enc.WriteString(s) }
 
-func (v *htmlV) WriteEndnotes() { v.enc.WriteEndnotes() }
+func (v *htmlV) ZWriteEndnotes() { v.enc.WriteEndnotes() }
+func (v *htmlV) WriteEndnotes()  { v.env.WriteEndnotes() }
 
 func (v *htmlV) makeVisitBlock(oldF html.TypeFunc) html.TypeFunc {
 	return func(enc *html.Encoder, obj zjson.Object, pos int) (bool, zjson.CloseFunc) {
@@ -190,6 +198,37 @@ func (v *htmlV) visitLink(enc *html.Encoder, obj zjson.Object, _ int) (bool, zjs
 		v.WriteString(suffix)
 	}
 }
+func (v *htmlV) generateLinkZettel(senv sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+	env := senv.(*html.EncEnvironment)
+	if a, refValue, ok := html.PrepareLink(env, args); ok {
+		zid, _, _ := strings.Cut(refValue, "#")
+		// TODO: check for fragment
+		if si := v.curSlide.FindSlide(api.ZettelID(zid)); si != nil {
+			// TODO: process and add fragment
+			a = a.Set("href", fmt.Sprintf("#(%d)", si.Number))
+			html.WriteLink(env, args, a, refValue, "")
+		} else if v.extZettelLinks {
+			// TODO: make link absolute
+			a = a.Set("href", "/"+zid)
+			html.WriteLink(env, args, a, refValue, "&#10547;")
+		} else {
+			html.WriteLink(env, args, a, refValue, "")
+		}
+	}
+	return nil, nil
+}
+
+func (v *htmlV) generateLinkExternal(senv sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+	env := senv.(*html.EncEnvironment)
+	if a, refValue, ok := html.PrepareLink(env, args); ok {
+		a = a.Set("href", refValue).
+			AddClass("external").
+			Set("target", "_blank").
+			Set("rel", "noopener noreferrer")
+		html.WriteLink(env, args, a, refValue, "&#10138;")
+	}
+	return nil, nil
+}
 
 func (v *htmlV) visitEmbed(enc *html.Encoder, obj zjson.Object, _ int) (bool, zjson.CloseFunc) {
 	src := zjson.GetString(obj, zjson.NameString)
@@ -224,4 +263,31 @@ func (v *htmlV) visitEmbedSVG(src string) {
 		}
 	}
 	fmt.Fprintf(v, "<figure><embed type=\"image/svg+xml\" src=\"%s\" /></figure>\n", "/"+src+".svg")
+}
+func (v *htmlV) generateEmbed(senv sxpf.Environment, args *sxpf.Pair, arity int) (sxpf.Value, error) {
+	env := senv.(*html.EncEnvironment)
+	ref := env.GetPair(args.GetTail())
+	src := env.GetString(ref.GetTail())
+	if syntax := env.GetString(args.GetTail().GetTail()); syntax == api.ValueSyntaxSVG {
+		// TODO
+		v.visitEmbedSVG(src)
+		return nil, nil
+	}
+	zid := api.ZettelID(src)
+	if v.s != nil && v.embedImage && zid.IsValid() && v.s.HasImage(zid) {
+		if img, found := v.s.GetImage(zid); found {
+			var buf bytes.Buffer
+			buf.WriteString("data:image/")
+			buf.WriteString(img.syntax)
+			buf.WriteString(";base64,")
+			base64.NewEncoder(base64.StdEncoding, &buf).Write(img.data)
+			env.WriteImageWithSource(args, buf.String())
+			return nil, nil
+		}
+	}
+	if zid.IsValid() {
+		src = "/" + src + ".content"
+	}
+	env.WriteImageWithSource(args, src)
+	return nil, nil
 }
