@@ -520,9 +520,7 @@ func hasMermaidAttribute(args *sxpf.Pair) bool {
 	return false
 }
 
-func (ce *collectEnv) EvalPair(p *sxpf.Pair) (sxpf.Value, error) {
-	return nil, sxpf.ExecCallOrList(ce, p)
-}
+func (ce *collectEnv) EvalPair(p *sxpf.Pair) (sxpf.Value, error)       { return sxpf.EvalCallOrSeq(ce, p) }
 func (ce *collectEnv) EvalSymbol(sym *sxpf.Symbol) (sxpf.Value, error) { return sym, nil }
 func (ce *collectEnv) EvalOther(val sxpf.Value) (sxpf.Value, error)    { return val, nil }
 
