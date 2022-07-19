@@ -12,12 +12,10 @@ package main
 
 import (
 	"log"
-	"strconv"
 
 	"codeberg.org/t73fde/sxpf"
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/sexpr"
-	"zettelstore.de/c/zjson"
 )
 
 // Constants for zettel metadata keys
@@ -39,34 +37,29 @@ const (
 
 // Slide is one slide that is shown one or more times.
 type slide struct {
-	zid      api.ZettelID // The zettel identifier
-	zTitle   zjson.Array
-	title    *sxpf.Pair
-	lang     string
-	role     string
-	zContent zjson.Array // Zettel / slide content
-	content  *sxpf.Pair
+	zid     api.ZettelID // The zettel identifier
+	title   *sxpf.Pair
+	lang    string
+	role    string
+	content *sxpf.Pair // Zettel / slide content
 }
 
-func newSlide(zid api.ZettelID, zMeta zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent *sxpf.Pair) *slide {
+func newSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.Pair) *slide {
 	return &slide{
-		zid:      zid,
-		zTitle:   zGetSlideTitle(zMeta),
-		title:    getSlideTitleZid(sxMeta, zid),
-		lang:     sxMeta.GetString(api.KeyLang),
-		role:     sxMeta.GetString(KeySlideRole),
-		zContent: zContent,
-		content:  sxContent,
+		zid:     zid,
+		title:   getSlideTitleZid(sxMeta, zid),
+		lang:    sxMeta.GetString(api.KeyLang),
+		role:    sxMeta.GetString(KeySlideRole),
+		content: sxContent,
 	}
 }
-func (sl *slide) MakeChild(zTitle, zContent zjson.Array, sxContent *sxpf.Pair) *slide {
+func (sl *slide) MakeChild(sxTitle, sxContent *sxpf.Pair) *slide {
 	return &slide{
-		zid:      sl.zid,
-		zTitle:   zTitle,
-		lang:     sl.lang,
-		role:     sl.role,
-		zContent: zContent,
-		content:  sxContent,
+		zid:     sl.zid,
+		title:   sxTitle,
+		lang:    sl.lang,
+		role:    sl.role,
+		content: sxContent,
 	}
 }
 
@@ -112,32 +105,36 @@ func (si *slideInfo) LastChild() *slideInfo {
 
 func (si *slideInfo) SplitChildren() {
 	var oldest, youngest *slideInfo
-	zTitle := si.Slide.zTitle
-	var zContent zjson.Array
-	for _, zbn := range si.Slide.zContent {
-		zobj := zjson.MakeObject(zbn)
-		zti, found := zobj[zjson.NameType]
-		if !found {
+	title := si.Slide.title
+	var content []sxpf.Value
+	for elem := si.Slide.content; !elem.IsNil(); elem = elem.GetTail() {
+		bn, err := elem.GetPair()
+		if err != nil {
 			return
 		}
-		if zjson.MakeString(zti) != zjson.TypeHeading {
-			zContent = append(zContent, zbn)
+		sym, err := bn.GetSymbol()
+		if err != nil {
 			continue
 		}
-		if zLevel, err := strconv.Atoi(zjson.GetNumber(zobj)); err != nil || zLevel > 1 {
-			zContent = append(zContent, zbn)
+		if sym != sexpr.SymHeading {
+			content = append(content, bn)
 			continue
 		}
-		zNextTitle := zjson.GetArray(zobj, zjson.NameInline)
-		if len(zNextTitle) == 0 {
-			zContent = append(zContent, zbn)
+		levelPair := bn.GetTail()
+		if level, err := levelPair.GetInteger(); err != nil || level < 1 || level > 1 {
+			content = append(content, bn)
+			continue
+		}
+		nextTitle := levelPair.GetTail().GetTail().GetTail().GetTail()
+		if nextTitle.IsEmpty() {
+			content = append(content, bn)
 			continue
 		}
 		slInfo := &slideInfo{
 			prev:  youngest,
-			Slide: si.Slide.MakeChild(zTitle, zContent, nil),
+			Slide: si.Slide.MakeChild(title, sxpf.NewPairFromSlice(content)),
 		}
-		zContent = nil
+		content = nil
 		if oldest == nil {
 			oldest = slInfo
 		}
@@ -145,15 +142,15 @@ func (si *slideInfo) SplitChildren() {
 			youngest.next = slInfo
 		}
 		youngest = slInfo
-		zTitle = zNextTitle
+		title = nextTitle
 	}
 	if oldest == nil {
-		oldest = &slideInfo{Slide: si.Slide.MakeChild(zTitle, zContent, nil)}
+		oldest = &slideInfo{Slide: si.Slide.MakeChild(title, sxpf.NewPairFromSlice(content))}
 		youngest = oldest
 	} else {
 		slInfo := &slideInfo{
 			prev:  youngest,
-			Slide: si.Slide.MakeChild(zTitle, zContent, nil),
+			Slide: si.Slide.MakeChild(title, sxpf.NewPairFromSlice(content)),
 		}
 		if youngest != nil {
 			youngest.next = slInfo
@@ -193,7 +190,6 @@ type image struct {
 // slideSet is the sequence of slides shown.
 type slideSet struct {
 	zid         api.ZettelID
-	zMeta       zjson.Meta // Metadata of slideset
 	sxMeta      sexpr.Meta // Metadata of slideset
 	seqSlide    []*slide   // slide may occur more than once in seq, but should be stored only once
 	setSlide    map[api.ZettelID]*slide
@@ -202,17 +198,15 @@ type slideSet struct {
 	hasMermaid  bool
 }
 
-func newSlideSet(zid api.ZettelID, zjMeta zjson.Value, sxMeta sexpr.Meta) *slideSet {
-	zm := zjson.MakeMeta(zjMeta)
-	if len(zm) == 0 || len(sxMeta) == 0 {
+func newSlideSet(zid api.ZettelID, sxMeta sexpr.Meta) *slideSet {
+	if len(sxMeta) == 0 {
 		return nil
 	}
-	return newSlideSetMeta(zid, zm, sxMeta)
+	return newSlideSetMeta(zid, sxMeta)
 }
-func newSlideSetMeta(zid api.ZettelID, zm zjson.Meta, sxMeta sexpr.Meta) *slideSet {
+func newSlideSetMeta(zid api.ZettelID, sxMeta sexpr.Meta) *slideSet {
 	return &slideSet{
 		zid:      zid,
-		zMeta:    zm,
 		sxMeta:   sxMeta,
 		setSlide: make(map[api.ZettelID]*slide),
 		setImage: make(map[api.ZettelID]image),
@@ -337,13 +331,6 @@ func (s *slideSet) Images() []api.ZettelID {
 	return result
 }
 
-func (s *slideSet) ZTitle() zjson.Array { return zGetSlideTitle(s.zMeta) }
-func (s *slideSet) ZSubtitle() zjson.Array {
-	if subTitle := s.zMeta.GetArray(KeySubTitle); len(subTitle) > 0 {
-		return subTitle
-	}
-	return nil
-}
 func (s *slideSet) Title() *sxpf.Pair { return getSlideTitle(s.sxMeta) }
 func (s *slideSet) Subtitle() *sxpf.Pair {
 	if subTitle := s.sxMeta.GetPair(KeySubTitle); !subTitle.IsEmpty() {
@@ -352,35 +339,25 @@ func (s *slideSet) Subtitle() *sxpf.Pair {
 	return nil
 }
 
-func (s *slideSet) Lang() string { return s.zMeta.GetString(api.KeyLang) }
+func (s *slideSet) Lang() string { return s.sxMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
-	if author := s.zMeta.GetString(KeyAuthor); author != "" {
+	if author := s.sxMeta.GetString(KeyAuthor); author != "" {
 		return author
 	}
 	return cfg.author
 }
-func (s *slideSet) Copyright() string { return s.zMeta.GetString(api.KeyCopyright) }
-func (s *slideSet) License() string   { return s.zMeta.GetString(api.KeyLicense) }
+func (s *slideSet) Copyright() string { return s.sxMeta.GetString(api.KeyCopyright) }
+func (s *slideSet) License() string   { return s.sxMeta.GetString(api.KeyLicense) }
 
 type getZettelContentFunc func(api.ZettelID) ([]byte, error)
-type zGetZettelFunc func(api.ZettelID) (zjson.Value, error)
 type sGetZettelFunc func(api.ZettelID) (sxpf.Value, error)
 
-func (s *slideSet) AddSlide(zid api.ZettelID, zGetZettel zGetZettelFunc, sGetZettel sGetZettelFunc) {
+func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc) {
 	if sl, found := s.setSlide[zid]; found {
 		s.seqSlide = append(s.seqSlide, sl)
 		return
 	}
-	zjZettel, err := zGetZettel(zid)
-	if err != nil {
-		// TODO: add artificial slide with error message / data
-		return
-	}
-	zslMeta, zslContent := zjson.GetMetaContent(zjZettel)
-	if zslMeta == nil || zslContent == nil {
-		// TODO: Add artificial slide with error message
-		return
-	}
+
 	sxZettel, err := sGetZettel(zid)
 	if err != nil {
 		// TODO: add artificial slide with error message / data
@@ -391,23 +368,23 @@ func (s *slideSet) AddSlide(zid api.ZettelID, zGetZettel zGetZettelFunc, sGetZet
 		// TODO: Add artificial slide with error message
 		return
 	}
-	sl := newSlide(zid, zslMeta, zslContent, sxMeta, sxContent)
+	sl := newSlide(zid, sxMeta, sxContent)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) AdditionalSlide(zid api.ZettelID, zm zjson.Meta, zContent zjson.Array, sxMeta sexpr.Meta, sxContent *sxpf.Pair) {
+func (s *slideSet) AdditionalSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.Pair) {
 	// TODO: if first, add slide with text "additional content"
-	sl := newSlide(zid, zm, zContent, sxMeta, sxContent)
+	sl := newSlide(zid, sxMeta, sxContent)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelZJSON zGetZettelFunc, getZettelSexpr sGetZettelFunc) {
+func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelSexpr sGetZettelFunc) {
 	if s.isCompleted {
 		return
 	}
-	env := collectEnv{s: s, getZettel: getZettel, zGetZettel: getZettelZJSON, sGetZettel: getZettelSexpr}
+	env := collectEnv{s: s, getZettel: getZettel, sGetZettel: getZettelSexpr}
 	env.initCollection(s)
 	for {
 		zid, found := env.pop()
@@ -457,7 +434,6 @@ func (ce *collectEnv) isMarked(zid api.ZettelID) bool {
 type collectEnv struct {
 	s          *slideSet
 	getZettel  getZettelContentFunc
-	zGetZettel zGetZettelFunc
 	sGetZettel sGetZettelFunc
 	stack      []api.ZettelID
 	visited    map[api.ZettelID]struct{}
@@ -528,18 +504,6 @@ func (ce *collectEnv) visitZettel(zid api.ZettelID) {
 	if ce.isMarked(zid) || ce.s.GetSlide(zid) != nil {
 		return
 	}
-	zjZettel, err := ce.zGetZettel(zid)
-	if err != nil {
-		log.Println("GETZ", err)
-		// TODO: add artificial slide with error message / data
-		return
-	}
-	slMeta, slContent := zjson.GetMetaContent(zjZettel)
-	if slMeta == nil || slContent == nil {
-		// TODO: Add artificial slide with error message
-		log.Println("MECO", zid)
-		return
-	}
 	sxZettel, err := ce.sGetZettel(zid)
 	if err != nil {
 		log.Println("GETS", err)
@@ -557,7 +521,7 @@ func (ce *collectEnv) visitZettel(zid api.ZettelID) {
 		// log.Println("VISZ", zid, vis)
 		return
 	}
-	ce.s.AdditionalSlide(zid, slMeta, slContent, sxMeta, sxContent)
+	ce.s.AdditionalSlide(zid, sxMeta, sxContent)
 	ce.push(zid)
 }
 
@@ -580,17 +544,11 @@ func (ce *collectEnv) visitImage(zid api.ZettelID, syntax string) {
 
 // Utility function to retrieve some slide/slideset metadata.
 
-func zGetSlideTitle(zm zjson.Meta) zjson.Array {
-	if zTitle := zm.GetArray(KeySlideTitle); len(zTitle) > 0 {
-		return zTitle
+func getZettelTitleZid(sxMeta sexpr.Meta, zid api.ZettelID) *sxpf.Pair {
+	if title := sxMeta.GetPair(api.KeyTitle); !title.IsEmpty() {
+		return title
 	}
-	return zm.GetArray(api.KeyTitle)
-}
-func zGetZettelTitleZid(zm zjson.Meta, zid api.ZettelID) zjson.Array {
-	if zTitle := zm.GetArray(api.KeyTitle); len(zTitle) > 0 {
-		return zTitle
-	}
-	return zjson.Array{zjson.Object{zjson.NameType: zjson.TypeText, zjson.NameString: string(zid)}}
+	return sxpf.NewPair(sexpr.SymText, sxpf.NewPair(sxpf.NewString(string(zid)), nil))
 }
 
 func getSlideTitle(sxMeta sexpr.Meta) *sxpf.Pair {

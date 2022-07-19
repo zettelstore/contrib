@@ -31,7 +31,6 @@ import (
 	"zettelstore.de/c/client"
 	"zettelstore.de/c/sexpr"
 	"zettelstore.de/c/text"
-	"zettelstore.de/c/zjson"
 )
 
 // Constants for minimum required version.
@@ -256,7 +255,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 
 	role := sxMeta.GetString(api.KeyRole)
 	if role == slidesSetRole {
-		if slides := processSlideTOC(ctx, c, zid, nil, sxMeta); slides != nil {
+		if slides := processSlideTOC(ctx, c, zid, sxMeta); slides != nil {
 			renderSlideTOC(w, slides)
 			return
 		}
@@ -293,20 +292,17 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	writeHTMLFooter(w, he.hasMermaid)
 }
 
-func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, zm zjson.Meta, sxMeta sexpr.Meta) *slideSet {
+func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sxMeta sexpr.Meta) *slideSet {
 	o, err := c.GetZettelOrder(ctx, zid)
 	if err != nil {
 		return nil
 	}
-	slides := newSlideSetMeta(zid, zm, sxMeta)
+	slides := newSlideSetMeta(zid, sxMeta)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return c.GetZettel(ctx, zid, api.PartContent) }
-	zGetZettel := func(zid api.ZettelID) (zjson.Value, error) {
-		return c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
-	}
 	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
 		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
 	}
-	setupSlideSet(slides, o.List, getZettel, zGetZettel, sGetZettel)
+	setupSlideSet(slides, o.List, getZettel, sGetZettel)
 	return slides
 }
 
@@ -351,25 +347,17 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		reportRetrieveError(w, zid, err, "zettel")
 		return
 	}
-	zjMeta, err := cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartMeta)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
-		return
-	}
 	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartMeta)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 		return
 	}
-	slides := newSlideSet(zid, zjMeta, sexpr.MakeMeta(sMeta))
+	slides := newSlideSet(zid, sexpr.MakeMeta(sMeta))
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return cfg.c.GetZettel(ctx, zid, api.PartContent) }
-	zGetZettel := func(zid api.ZettelID) (zjson.Value, error) {
-		return cfg.c.GetEvaluatedZJSON(ctx, zid, api.PartZettel)
-	}
 	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
 		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
 	}
-	setupSlideSet(slides, o.List, getZettel, zGetZettel, sGetZettel)
+	setupSlideSet(slides, o.List, getZettel, sGetZettel)
 	ren.Prepare(ctx, cfg)
 	ren.Render(w, slides, slides.Author(cfg))
 }
@@ -399,8 +387,8 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 		io.WriteString(w, "</style>\n")
 	}
 
-	zTitle := slides.ZTitle()
-	zWriteTitle(w, zTitle)
+	title := slides.Title()
+	writeTitle(w, title)
 	io.WriteString(w, `<link rel="stylesheet" href="revealjs/reveal.css">
 <link rel="stylesheet" href="revealjs/theme/white.css">
 <link rel="stylesheet" href="revealjs/plugin/highlight/default.css">
@@ -409,11 +397,11 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 
 	io.WriteString(w, "<div class=\"reveal\">\n<div class=\"slides\">\n")
 	offset := 1
-	if len(zTitle) > 0 {
+	if !title.IsEmpty() {
 		offset++
-		fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", zEncodeInline(nil, zTitle))
-		if zSubtitle := slides.ZSubtitle(); len(zSubtitle) > 0 {
-			fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", zEncodeInline(nil, zSubtitle))
+		fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", evaluateInline(nil, title))
+		if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
+			fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", evaluateInline(nil, subtitle))
 		}
 		if author != "" {
 			fmt.Fprintf(w, "\n<p class=\"author\">%s</p>", html.EscapeString(author))
@@ -461,11 +449,6 @@ plugins: [ RevealHighlight, RevealNotes ]});</script>
 	writeHTMLFooter(w, slides.hasMermaid)
 }
 
-func zWriteTitle(w http.ResponseWriter, title zjson.Array) {
-	if len(title) > 0 {
-		fmt.Fprintf(w, "<title>%s</title>\n", text.EncodeInlineString(title))
-	}
-}
 func writeTitle(w http.ResponseWriter, title *sxpf.Pair) {
 	if !title.IsEmpty() {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
@@ -473,12 +456,12 @@ func writeTitle(w http.ResponseWriter, title *sxpf.Pair) {
 }
 
 func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
-	if title := si.Slide.zTitle; len(title) > 0 {
-		fmt.Fprintf(w, "<h1>%s</h1>", zEncodeInline(he, title))
+	if title := si.Slide.title; !title.IsEmpty() {
+		fmt.Fprintf(w, "<h1>%s</h1>", evaluateInline(he, title))
 	}
 	he.SetUnique(fmt.Sprintf("%d:", si.Number))
-	he.TraverseBlock(si.Slide.zContent)
-	he.enc.WriteEndnotes()
+	he.EvaluateBlock(si.Slide.content)
+	he.WriteEndnotes()
 	fmt.Fprintf(w, "\n<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
 }
 
@@ -563,11 +546,11 @@ func slideNoRange(si *slideInfo) string {
 	return ""
 }
 
-func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, zGetZettel zGetZettelFunc, sGetZettel sGetZettelFunc) {
+func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, sGetZettel sGetZettelFunc) {
 	for _, sl := range l {
-		slides.AddSlide(sl.ID, zGetZettel, sGetZettel)
+		slides.AddSlide(sl.ID, sGetZettel)
 	}
-	slides.Completion(getZettel, zGetZettel, sGetZettel)
+	slides.Completion(getZettel, sGetZettel)
 }
 
 func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
@@ -579,8 +562,8 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	}
 	titles := make([]string, len(zl))
 	for i, jm := range zl {
-		if zjMeta, err := c.GetEvaluatedZJSON(ctx, jm.ID, api.PartMeta); err == nil {
-			titles[i] = zEncodeInline(nil, zGetZettelTitleZid(zjson.MakeMeta(zjMeta), jm.ID))
+		if sMeta, err := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta); err == nil {
+			titles[i] = evaluateInline(nil, getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID))
 		}
 	}
 
