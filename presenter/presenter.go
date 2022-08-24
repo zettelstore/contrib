@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"codeberg.org/t73fde/sxpf"
 	"golang.org/x/term"
@@ -36,7 +37,7 @@ import (
 // Constants for minimum required version.
 const (
 	minMajor = 0
-	minMinor = 5
+	minMinor = 6
 )
 
 func hasVersion(major, minor int) bool {
@@ -555,7 +556,7 @@ func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelCon
 
 func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	ctx := r.Context()
-	zQuery, zl, err := c.ListZettelJSON(ctx, r.URL.Query())
+	_, human, zl, err := c.ListZettelJSON(ctx, strings.Join(r.URL.Query()[api.QueryKeySearch], " "))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error retrieving zettel list %s: %s\n", r.URL.Query(), err), http.StatusBadRequest)
 		return
@@ -568,17 +569,17 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	}
 
 	var title string
-	if zQuery == "" {
+	if human == "" {
 		title = "All zettel"
-		zQuery = title
+		human = title
 	} else {
 		title = "Selected zettel"
-		zQuery = "Search: " + zQuery
+		human = "Search: " + human
 	}
 	writeHTMLHeader(w, "", "")
 	fmt.Fprintf(w, "<title>%s</title>\n", title)
 	writeHTMLBody(w)
-	fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(zQuery))
+	fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(human))
 	io.WriteString(w, "<ul>\n")
 	for i, jm := range zl {
 		fmt.Fprintf(
