@@ -556,7 +556,7 @@ func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelCon
 
 func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	ctx := r.Context()
-	_, human, zl, err := c.ListZettelJSON(ctx, strings.Join(r.URL.Query()[api.QueryKeySearch], " "))
+	_, human, zl, err := c.ListZettelJSON(ctx, strings.Join(r.URL.Query()[api.QueryKeyQuery], " "))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error retrieving zettel list %s: %s\n", r.URL.Query(), err), http.StatusBadRequest)
 		return
