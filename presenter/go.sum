@@ -2,7 +2,7 @@ codeberg.org/t73fde/sxpf v0.0.0-20220719090054-749a39d0a7a0 h1:viya/OgeF16+i8caB
 codeberg.org/t73fde/sxpf v0.0.0-20220719090054-749a39d0a7a0/go.mod h1:4fAHEF3VH+ofbZkF6NzqiItTNy2X11tVCnZX99jXouA=
 golang.org/x/sys v0.0.0-20220608164250-635b8c9b7f68 h1:z8Hj/bl9cOV2grsOpEaQFUaly0JWN3i97mo3jXKJNp0=
 golang.org/x/sys v0.0.0-20220608164250-635b8c9b7f68/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
-golang.org/x/term v0.0.0-20220526004731-065cf7ba2467 h1:CBpWXWQpIRjzmkkA+M7q9Fqnwd2mZr3AFqexg8YTfoM=
-golang.org/x/term v0.0.0-20220526004731-065cf7ba2467/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
-zettelstore.de/c v0.7.1-0.20220917171338-230ea91fc34d h1:fi9KbrizJdSUdnLIj8E+St0gagJcAO/rzeopZ6UEg6Y=
-zettelstore.de/c v0.7.1-0.20220917171338-230ea91fc34d/go.mod h1:+SoneUhKQ81A2Id/bC6FdDYYQAHYfVryh7wHFnnklew=
+golang.org/x/term v0.1.0 h1:g6Z6vPFA9dYBAF7DWcH6sCcOntplXsDKcliusYijMlw=
+golang.org/x/term v0.1.0/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
+zettelstore.de/c v0.8.0 h1:3P8FA7x5i8e70zwoxDDBRQ3ef55pZ7ouDO+6Nsk/WY8=
+zettelstore.de/c v0.8.0/go.mod h1:+SoneUhKQ81A2Id/bC6FdDYYQAHYfVryh7wHFnnklew=

@@ -37,7 +37,7 @@ import (
 // Constants for minimum required version.
 const (
 	minMajor = 0
-	minMinor = 6
+	minMinor = 8
 )
 
 func hasVersion(major, minor int) bool {
