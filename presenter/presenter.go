@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2021-2022 Detlef Stern
+// Copyright (c) 2021-present Detlef Stern
 //
 // This file is part of zettelstore slides application.
 //
@@ -37,7 +37,7 @@ import (
 // Constants for minimum required version.
 const (
 	minMajor = 0
-	minMinor = 8
+	minMinor = 12
 )
 
 func hasVersion(major, minor int) bool {
@@ -99,7 +99,7 @@ func getClient(ctx context.Context, base string) (*client.Client, error) {
 	if ver.Major == -1 {
 		fmt.Fprintln(os.Stderr, "Unknown zettelstore version. Use it at your own risk.")
 	} else if !hasVersion(ver.Major, ver.Minor) {
-		return nil, fmt.Errorf("need at least zettelstore version %d.%d", minMajor, minMinor)
+		return nil, fmt.Errorf("need at least zettelstore version %d.%d but found only %d.%d", minMajor, minMinor, ver.Major, ver.Minor)
 	}
 
 	if !withAuth {

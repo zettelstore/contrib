@@ -1,8 +1,8 @@
 codeberg.org/t73fde/sxpf v0.0.0-20220719090054-749a39d0a7a0 h1:viya/OgeF16+i8caBPJmcLQhGpZodPh+/nxtJzSSO1s=
 codeberg.org/t73fde/sxpf v0.0.0-20220719090054-749a39d0a7a0/go.mod h1:4fAHEF3VH+ofbZkF6NzqiItTNy2X11tVCnZX99jXouA=
-golang.org/x/sys v0.0.0-20220608164250-635b8c9b7f68 h1:z8Hj/bl9cOV2grsOpEaQFUaly0JWN3i97mo3jXKJNp0=
-golang.org/x/sys v0.0.0-20220608164250-635b8c9b7f68/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
-golang.org/x/term v0.1.0 h1:g6Z6vPFA9dYBAF7DWcH6sCcOntplXsDKcliusYijMlw=
-golang.org/x/term v0.1.0/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
-zettelstore.de/c v0.9.1-0.20221220173028-c984daadfc56 h1:fDacVA+oq9Z66S3hmCqt4SNYAL8K1ImhJ2ppOBkE7Ns=
-zettelstore.de/c v0.9.1-0.20221220173028-c984daadfc56/go.mod h1:+SoneUhKQ81A2Id/bC6FdDYYQAHYfVryh7wHFnnklew=
+golang.org/x/sys v0.4.0 h1:Zr2JFtRQNX3BCZ8YtxRE9hNJYC8J6I1MVbMg6owUp18=
+golang.org/x/sys v0.4.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/term v0.4.0 h1:O7UWfv5+A2qiuulQk30kVinPoMtoIPeVaKLEgLpVkvg=
+golang.org/x/term v0.4.0/go.mod h1:9P2UbLfCdcvo3p/nzKvsmas4TnlujnuoV9hGgYzW1lQ=
+zettelstore.de/c v0.10.1-0.20230125213127-720d796c7939 h1:MtGyVwmL8hEaBIxTfsOVl/RlhAAtK5UqNj83t9Lj7cI=
+zettelstore.de/c v0.10.1-0.20230125213127-720d796c7939/go.mod h1:+SoneUhKQ81A2Id/bC6FdDYYQAHYfVryh7wHFnnklew=
