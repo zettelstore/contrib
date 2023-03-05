@@ -44,18 +44,18 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedIma
 	return v
 }
 
-func formNothing(sxpf.Environment, *sxpf.Pair, int) (sxpf.Value, error) { return nil, nil }
+func formNothing(sxpf.Environment, *sxpf.List, int) (sxpf.Object, error) { return nil, nil }
 
 func (v *htmlV) SetUnique(s string)            { v.env.SetUnique(s) }
 func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
 
-func evaluateInline(baseV *htmlV, in *sxpf.Pair) string {
+func evaluateInline(baseV *htmlV, in *sxpf.List) string {
 	if baseV == nil {
 		return html.EvaluateInline(nil, in, false, false)
 	}
 	return html.EvaluateInline(baseV.env, in, true, true)
 }
-func (v *htmlV) EvaluateBlock(bn *sxpf.Pair) { v.env.EvalPair(bn) }
+func (v *htmlV) EvaluateBlock(bn *sxpf.List) { v.env.EvalPair(bn) }
 
 type htmlV struct {
 	env            *html.EncEnvironment
@@ -80,7 +80,7 @@ func (v *htmlV) WriteEndnotes() { v.env.WriteEndnotes() }
 func (v *htmlV) makeEvaluateBlock(oldForm sxpf.Form) sxpf.Form {
 	return sxpf.NewBuiltin(
 		"block", true, 2, -1,
-		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
 			a := sexpr.GetAttributes(v.env.GetPair(args))
 			if val, found := a.Get(""); found {
 				switch val {
@@ -89,7 +89,7 @@ func (v *htmlV) makeEvaluateBlock(oldForm sxpf.Form) sxpf.Form {
 						return nil, nil
 					}
 					v.WriteString("<aside class=\"notes\">")
-					v.EvaluateBlock(v.env.GetPair(args.GetTail()))
+					v.EvaluateBlock(v.env.GetPair(args.Tail()))
 					v.WriteString("</aside>")
 					return nil, nil
 				case "handout":
@@ -97,7 +97,7 @@ func (v *htmlV) makeEvaluateBlock(oldForm sxpf.Form) sxpf.Form {
 						return nil, nil
 					}
 					v.WriteString("<aside class=\"handout\">")
-					v.EvaluateBlock(v.env.GetPair(args.GetTail()))
+					v.EvaluateBlock(v.env.GetPair(args.Tail()))
 					v.WriteString("</aside>")
 					return nil, nil
 				case "both":
@@ -113,7 +113,7 @@ func (v *htmlV) makeEvaluateBlock(oldForm sxpf.Form) sxpf.Form {
 					default:
 						return nil, nil
 					}
-					v.EvaluateBlock(v.env.GetPair(args.GetTail()))
+					v.EvaluateBlock(v.env.GetPair(args.Tail()))
 					v.WriteString("</aside>")
 					return nil, nil
 				}
@@ -125,11 +125,11 @@ func (v *htmlV) makeEvaluateBlock(oldForm sxpf.Form) sxpf.Form {
 func (v *htmlV) makeEvaluateVerbatimEval(oldForm sxpf.Form) sxpf.Form {
 	return sxpf.NewBuiltin(
 		"verb-eval", true, 1, -1,
-		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
 			if hasMermaidAttribute(args) {
 				v.hasMermaid = true
 				v.WriteString("<div class=\"mermaid\">\n")
-				v.WriteString(v.env.GetString(args.GetTail()))
+				v.WriteString(v.env.GetString(args.Tail()))
 				v.WriteString("</div>")
 				return nil, nil
 			}
@@ -137,7 +137,7 @@ func (v *htmlV) makeEvaluateVerbatimEval(oldForm sxpf.Form) sxpf.Form {
 		})
 }
 
-func (v *htmlV) generateLinkZettel(senv sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+func (v *htmlV) generateLinkZettel(senv sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
 	env := senv.(*html.EncEnvironment)
 	if a, refValue, ok := html.PrepareLink(env, args); ok {
 		zid, _, _ := strings.Cut(refValue, "#")
@@ -157,7 +157,7 @@ func (v *htmlV) generateLinkZettel(senv sxpf.Environment, args *sxpf.Pair, _ int
 	return nil, nil
 }
 
-func (v *htmlV) generateLinkExternal(senv sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
+func (v *htmlV) generateLinkExternal(senv sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
 	env := senv.(*html.EncEnvironment)
 	if a, refValue, ok := html.PrepareLink(env, args); ok {
 		a = a.Set("href", refValue).
@@ -179,11 +179,11 @@ func (v *htmlV) visitEmbedSVG(src string) {
 	}
 	fmt.Fprintf(v, "<figure><embed type=\"image/svg+xml\" src=\"%s\" /></figure>\n", "/"+src+".svg")
 }
-func (v *htmlV) generateEmbed(senv sxpf.Environment, args *sxpf.Pair, arity int) (sxpf.Value, error) {
+func (v *htmlV) generateEmbed(senv sxpf.Environment, args *sxpf.List, arity int) (sxpf.Object, error) {
 	env := senv.(*html.EncEnvironment)
-	ref := env.GetPair(args.GetTail())
+	ref := env.GetPair(args.Tail())
 	src := env.GetString(ref.GetTail())
-	if syntax := env.GetString(args.GetTail().GetTail()); syntax == api.ValueSyntaxSVG {
+	if syntax := env.GetString(args.Tail().Tail()); syntax == api.ValueSyntaxSVG {
 		// TODO
 		v.visitEmbedSVG(src)
 		return nil, nil

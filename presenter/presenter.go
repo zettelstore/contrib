@@ -247,7 +247,7 @@ func reportRetrieveError(w http.ResponseWriter, zid api.ZettelID, err error, obj
 
 func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesSetRole string) {
 	ctx := r.Context()
-	sxZettel, err := c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
+	sxZettel, err := c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, sxpf.MakeMappedFactory()) // TODO
 	if err != nil {
 		reportRetrieveError(w, zid, err, "zettel")
 		return
@@ -273,7 +273,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 		if v.Type != api.MetaURL {
 			continue
 		}
-		strVal := sexpr.MakeString(v.Value)
+		strVal := sxpf.MakeString(v.Value)
 		if strVal == "" {
 			continue
 		}
@@ -300,8 +300,8 @@ func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sx
 	}
 	slides := newSlideSetMeta(zid, sxMeta)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return c.GetZettel(ctx, zid, api.PartContent) }
-	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
-		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
+	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
+		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, sxpf.MakeMappedFactory()) // TODO
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel)
 	return slides
@@ -348,15 +348,15 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		reportRetrieveError(w, zid, err, "zettel")
 		return
 	}
-	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartMeta)
+	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartMeta, sxpf.MakeMappedFactory()) //TODO
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 		return
 	}
 	slides := newSlideSet(zid, sexpr.MakeMeta(sMeta))
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return cfg.c.GetZettel(ctx, zid, api.PartContent) }
-	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
-		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
+	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
+		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, sxpf.MakeMappedFactory()) //TODO
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel)
 	ren.Prepare(ctx, cfg)
@@ -450,7 +450,7 @@ plugins: [ RevealHighlight, RevealNotes ]});</script>
 	writeHTMLFooter(w, slides.hasMermaid)
 }
 
-func writeTitle(w http.ResponseWriter, title *sxpf.Pair) {
+func writeTitle(w http.ResponseWriter, title *sxpf.List) {
 	if !title.IsEmpty() {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
 	}
@@ -563,7 +563,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 	}
 	titles := make([]string, len(zl))
 	for i, jm := range zl {
-		if sMeta, err := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta); err == nil {
+		if sMeta, err := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta, sxpf.MakeMappedFactory()); err == nil { // TODO
 			titles[i] = evaluateInline(nil, getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID))
 		}
 	}
