@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2022 Detlef Stern
+// Copyright (c) 2022-present Detlef Stern
 //
 // This file is part of zettelstore slides application.
 //
@@ -46,8 +46,8 @@ type slide struct {
 
 func newSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.List) *slide {
 	return &slide{
-		zid:     zid,
-		title:   getSlideTitleZid(sxMeta, zid),
+		zid: zid,
+		// title:   getSlideTitleZid(sxMeta, zid),
 		lang:    sxMeta.GetString(api.KeyLang),
 		role:    sxMeta.GetString(KeySlideRole),
 		content: sxContent,
@@ -108,41 +108,41 @@ func (si *slideInfo) SplitChildren() {
 	title := si.Slide.title
 	var content []sxpf.Object
 	for elem := si.Slide.content; !elem.IsNil(); elem = elem.Tail() {
-		bn, err := elem.GetPair()
-		if err != nil {
-			return
-		}
-		sym, err := bn.GetSymbol()
-		if err != nil {
-			continue
-		}
-		if sym != sexpr.SymHeading {
-			content = append(content, bn)
-			continue
-		}
-		levelPair := bn.GetTail()
-		if level, err := levelPair.GetInteger(); err != nil || level < 1 || level > 1 {
-			content = append(content, bn)
-			continue
-		}
-		nextTitle := levelPair.GetTail().GetTail().GetTail().GetTail()
-		if nextTitle.IsEmpty() {
-			content = append(content, bn)
-			continue
-		}
-		slInfo := &slideInfo{
-			prev:  youngest,
-			Slide: si.Slide.MakeChild(title, sxpf.MakeList(content...)),
-		}
-		content = nil
-		if oldest == nil {
-			oldest = slInfo
-		}
-		if youngest != nil {
-			youngest.next = slInfo
-		}
-		youngest = slInfo
-		title = nextTitle
+		// bn, err := elem.GetPair()
+		// if err != nil {
+		// 	return
+		// }
+		// sym, err := bn.GetSymbol()
+		// if err != nil {
+		// 	continue
+		// }
+		// if sym != sexpr.SymHeading {
+		// 	content = append(content, bn)
+		// 	continue
+		// }
+		// levelPair := bn.GetTail()
+		// if level, err := levelPair.GetInteger(); err != nil || level < 1 || level > 1 {
+		// 	content = append(content, bn)
+		// 	continue
+		// }
+		// nextTitle := levelPair.GetTail().GetTail().GetTail().GetTail()
+		// if nextTitle.IsEmpty() {
+		// 	content = append(content, bn)
+		// 	continue
+		// }
+		// slInfo := &slideInfo{
+		// 	prev:  youngest,
+		// 	Slide: si.Slide.MakeChild(title, sxpf.MakeList(content...)),
+		// }
+		// content = nil
+		// if oldest == nil {
+		// 	oldest = slInfo
+		// }
+		// if youngest != nil {
+		// 	youngest.next = slInfo
+		// }
+		// youngest = slInfo
+		// title = nextTitle
 	}
 	if oldest == nil {
 		oldest = &slideInfo{Slide: si.Slide.MakeChild(title, sxpf.MakeList(content...))}
@@ -331,13 +331,8 @@ func (s *slideSet) Images() []api.ZettelID {
 	return result
 }
 
-func (s *slideSet) Title() *sxpf.List { return getSlideTitle(s.sxMeta) }
-func (s *slideSet) Subtitle() *sxpf.List {
-	if subTitle := s.sxMeta.GetPair(KeySubTitle); !subTitle.IsEmpty() {
-		return subTitle
-	}
-	return nil
-}
+func (s *slideSet) Title() *sxpf.List    { return getSlideTitle(s.sxMeta) }
+func (s *slideSet) Subtitle() *sxpf.List { return s.sxMeta.GetList(KeySubTitle) }
 
 func (s *slideSet) Lang() string { return s.sxMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
@@ -384,24 +379,24 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelSexpr sGe
 	if s.isCompleted {
 		return
 	}
-	env := collectEnv{s: s, getZettel: getZettel, sGetZettel: getZettelSexpr}
-	env.initCollection(s)
-	for {
-		zid, found := env.pop()
-		if !found {
-			break
-		}
-		if zid == api.InvalidZID {
-			continue
-		}
-		sl := s.GetSlide(zid)
-		if sl == nil {
-			panic(zid)
-		}
-		env.mark(zid)
-		sxpf.Eval(&env, sl.content)
-	}
-	s.hasMermaid = env.hasMermaid
+	// env := collectEnv{s: s, getZettel: getZettel, sGetZettel: getZettelSexpr}
+	// env.initCollection(s)
+	// for {
+	// 	zid, found := env.pop()
+	// 	if !found {
+	// 		break
+	// 	}
+	// 	if zid == api.InvalidZID {
+	// 		continue
+	// 	}
+	// 	sl := s.GetSlide(zid)
+	// 	if sl == nil {
+	// 		panic(zid)
+	// 	}
+	// 	env.mark(zid)
+	// 	sxpf.Eval(&env, sl.content)
+	// }
+	// s.hasMermaid = env.hasMermaid
 	s.isCompleted = true
 }
 
@@ -440,52 +435,52 @@ type collectEnv struct {
 	hasMermaid bool
 }
 
-func (ce *collectEnv) LookupForm(sym *sxpf.Symbol) (sxpf.Form, error) {
-	switch sym {
-	case sexpr.SymVerbatimEval:
-		return verbEvalFn, nil
-	case sexpr.SymLinkZettel:
-		return linkZettelFn, nil
-	case sexpr.SymEmbed:
-		return embedFn, nil
-	}
-	return ignoreFn, nil
-}
+// func (ce *collectEnv) LookupForm(sym *sxpf.Symbol) (sxpf.Form, error) {
+// 	switch sym {
+// 	case sexpr.SymVerbatimEval:
+// 		return verbEvalFn, nil
+// 	case sexpr.SymLinkZettel:
+// 		return linkZettelFn, nil
+// 	case sexpr.SymEmbed:
+// 		return embedFn, nil
+// 	}
+// 	return ignoreFn, nil
+// }
 
-var (
-	verbEvalFn = sxpf.NewBuiltin("verbatim-eval", true, 1, -1,
-		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
-			if hasMermaidAttribute(args) {
-				env.(*collectEnv).hasMermaid = true
-			}
-			return nil, nil
-		})
-	linkZettelFn = sxpf.NewBuiltin("link-zettel", true, 2, -1,
-		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
-			if zidVal, err := args.Tail().GetString(); err == nil {
-				zid := api.ZettelID(zidVal)
-				if zid.IsValid() {
-					env.(*collectEnv).visitZettel(zid)
-				}
-			}
-			return nil, nil
-		})
-	embedFn = sxpf.NewBuiltin("embed-inline", true, 3, -1,
-		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.List, error) {
-			argRef := args.Tail()
-			if ref, err := argRef.GetPair(); err == nil && ref.GetFirst() == sexpr.SymRefStateZettel {
-				if zidVal, ok := ref.GetTail().GetString(); ok == nil {
-					zid := api.ZettelID(zidVal)
-					if syntax, err := argRef.Tail().GetString(); err == nil && zid.IsValid() {
-						env.(*collectEnv).visitImage(zid, syntax)
-					}
-				}
-			}
-			return nil, nil
-		})
-	ignoreFn = sxpf.NewBuiltin("traverse", false, 0, -1,
-		func(sxpf.Environment, *sxpf.List, int) (sxpf.Object, error) { return nil, nil })
-)
+// var (
+// 	verbEvalFn = sxpf.NewBuiltin("verbatim-eval", true, 1, -1,
+// 		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
+// 			if hasMermaidAttribute(args) {
+// 				env.(*collectEnv).hasMermaid = true
+// 			}
+// 			return nil, nil
+// 		})
+// 	linkZettelFn = sxpf.NewBuiltin("link-zettel", true, 2, -1,
+// 		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
+// 			if zidVal, err := args.Tail().GetString(); err == nil {
+// 				zid := api.ZettelID(zidVal)
+// 				if zid.IsValid() {
+// 					env.(*collectEnv).visitZettel(zid)
+// 				}
+// 			}
+// 			return nil, nil
+// 		})
+// 	embedFn = sxpf.NewBuiltin("embed-inline", true, 3, -1,
+// 		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.List, error) {
+// 			argRef := args.Tail()
+// 			if ref, err := argRef.GetPair(); err == nil && ref.GetFirst() == sexpr.SymRefStateZettel {
+// 				if zidVal, ok := ref.GetTail().GetString(); ok == nil {
+// 					zid := api.ZettelID(zidVal)
+// 					if syntax, err := argRef.Tail().GetString(); err == nil && zid.IsValid() {
+// 						env.(*collectEnv).visitImage(zid, syntax)
+// 					}
+// 				}
+// 			}
+// 			return nil, nil
+// 		})
+// 	ignoreFn = sxpf.NewBuiltin("traverse", false, 0, -1,
+// 		func(sxpf.Environment, *sxpf.List, int) (sxpf.Object, error) { return nil, nil })
+// )
 
 func hasMermaidAttribute(args *sxpf.List) bool {
 	if p, ok := args.Car().(*sxpf.List); ok {
@@ -496,7 +491,7 @@ func hasMermaidAttribute(args *sxpf.List) bool {
 	return false
 }
 
-func (ce *collectEnv) EvalPair(p *sxpf.List) (sxpf.Object, error)       { return sxpf.EvalCallOrSeq(ce, p) }
+// func (ce *collectEnv) EvalPair(p *sxpf.List) (sxpf.Object, error)       { return sxpf.EvalCallOrSeq(ce, p) }
 func (ce *collectEnv) EvalSymbol(sym *sxpf.Symbol) (sxpf.Object, error) { return sym, nil }
 func (ce *collectEnv) EvalOther(val sxpf.Object) (sxpf.Object, error)   { return val, nil }
 
@@ -544,22 +539,23 @@ func (ce *collectEnv) visitImage(zid api.ZettelID, syntax string) {
 
 // Utility function to retrieve some slide/slideset metadata.
 
-func getZettelTitleZid(sxMeta sexpr.Meta, zid api.ZettelID) *sxpf.List {
-	if title := sxMeta.GetPair(api.KeyTitle); !title.IsEmpty() {
+func getZettelTitleZid(sxMeta sexpr.Meta, zid api.ZettelID, zs *sexpr.ZettelSymbols) *sxpf.List {
+	if title := sxMeta.GetList(api.KeyTitle); title != nil {
 		return title
 	}
-	return sxpf.Cons(sexpr.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil()))
+	return sxpf.Cons(zs.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil()))
 }
 
 func getSlideTitle(sxMeta sexpr.Meta) *sxpf.List {
-	if title := sxMeta.GetPair(KeySlideTitle); title != nil && !title.IsEmpty() {
+	if title := sxMeta.GetList(KeySlideTitle); title != nil {
 		return title
 	}
-	return sxMeta.GetPair(api.KeyTitle)
+	return sxMeta.GetList(api.KeyTitle)
 }
-func getSlideTitleZid(sxMeta sexpr.Meta, zid api.ZettelID) *sxpf.List {
-	if title := getSlideTitle(sxMeta); title != nil && !title.IsEmpty() {
+
+func getSlideTitleZid(sxMeta sexpr.Meta, zid api.ZettelID, zs *sexpr.ZettelSymbols) *sxpf.List {
+	if title := getSlideTitle(sxMeta); title != nil {
 		return title
 	}
-	return sxpf.Cons(sxpf.Cons(sexpr.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil())), sxpf.Nil())
+	return sxpf.Cons(sxpf.Cons(zs.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil())), sxpf.Nil())
 }

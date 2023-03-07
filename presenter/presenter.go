@@ -144,19 +144,24 @@ const (
 
 type slidesConfig struct {
 	c            *client.Client
+	astSF        sxpf.SymbolFactory
+	zs           *sexpr.ZettelSymbols
 	slideSetRole string
 	author       string
 }
 
 func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
-	result := slidesConfig{
-		c:            c,
-		slideSetRole: DefaultSlideSetRole,
-	}
 	m, err := c.GetMeta(ctx, zidConfig)
 	if err != nil {
 		return slidesConfig{}, err
 	}
+	result := slidesConfig{
+		c:            c,
+		astSF:        sxpf.MakeMappedFactory(),
+		zs:           &sexpr.ZettelSymbols{},
+		slideSetRole: DefaultSlideSetRole,
+	}
+	result.zs.InitializeZettelSymbols(result.astSF)
 	if ssr, ok := m[KeySlideSetRole]; ok {
 		result.slideSetRole = ssr
 	}
@@ -185,12 +190,12 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 					w.Write(content)
 				}
 			default:
-				processZettel(w, r, cfg.c, zid, cfg.slideSetRole)
+				processZettel(w, r, cfg.c, zid, cfg.astSF, cfg.zs, cfg.slideSetRole)
 			}
 			return
 		}
 		if len(path) == 2 && ' ' < path[1] && path[1] <= 'z' {
-			processList(w, r, cfg.c)
+			processList(w, r, cfg.c, cfg.astSF)
 			return
 		}
 		log.Println("NOTF", path)
@@ -245,55 +250,57 @@ func reportRetrieveError(w http.ResponseWriter, zid api.ZettelID, err error, obj
 	}
 }
 
-func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesSetRole string) {
+func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, astSF sxpf.SymbolFactory, zs *sexpr.ZettelSymbols, slidesSetRole string) {
 	ctx := r.Context()
-	sxZettel, err := c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, sxpf.MakeMappedFactory()) // TODO
+	sxZettel, err := c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, astSF)
 	if err != nil {
 		reportRetrieveError(w, zid, err, "zettel")
 		return
 	}
 	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
+	log.Println("META", sxMeta)
+	log.Println("CONT", sxContent)
 
 	role := sxMeta.GetString(api.KeyRole)
 	if role == slidesSetRole {
-		if slides := processSlideTOC(ctx, c, zid, sxMeta); slides != nil {
+		if slides := processSlideTOC(ctx, c, zid, sxMeta, astSF); slides != nil {
 			renderSlideTOC(w, slides)
 			return
 		}
 	}
 
-	title := getSlideTitleZid(sxMeta, zid)
+	title := getSlideTitleZid(sxMeta, zid, zs)
 	writeHTMLHeader(w, sxMeta.GetString(api.KeyLang), "")
-	fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
+	writeTitle(w, title)
 	writeHTMLBody(w)
-	he := htmlNew(w, nil, nil, 1, false, true)
-	fmt.Fprintf(w, "<h1>%s</h1>\n", evaluateInline(he, title))
-	hasHeader := false
-	for k, v := range sxMeta {
-		if v.Type != api.MetaURL {
-			continue
-		}
-		strVal := sxpf.MakeString(v.Value)
-		if strVal == "" {
-			continue
-		}
-		if !hasHeader {
-			io.WriteString(w, "<ul class=\"header\">\n")
-			hasHeader = true
-		}
-		fmt.Fprintf(w, "<li>%s: <a href=\"%s\" target=\"_blank\">%s</a>&#10138;</li>", html.EscapeString(k), strVal, html.EscapeString(strVal))
-	}
-	if hasHeader {
-		io.WriteString(w, "</ul>\n")
-	}
+	he := htmlNew(w, nil, nil, 1, astSF, false, true)
+	// fmt.Fprintf(w, "<h1>%s</h1>\n", evaluateInline(he, title))
+	// hasHeader := false
+	// for k, v := range sxMeta {
+	// 	if v.Type != api.MetaURL {
+	// 		continue
+	// 	}
+	// 	strVal := sxpf.MakeString(v.Value)
+	// 	if strVal == "" {
+	// 		continue
+	// 	}
+	// 	if !hasHeader {
+	// 		io.WriteString(w, "<ul class=\"header\">\n")
+	// 		hasHeader = true
+	// 	}
+	// 	fmt.Fprintf(w, "<li>%s: <a href=\"%s\" target=\"_blank\">%s</a>&#10138;</li>", html.EscapeString(k), strVal, html.EscapeString(strVal))
+	// }
+	// if hasHeader {
+	// 	io.WriteString(w, "</ul>\n")
+	// }
 
-	he.EvaluateBlock(sxContent)
-	he.WriteEndnotes()
+	// he.EvaluateBlock(sxContent)
+	// he.WriteEndnotes()
 	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
 	writeHTMLFooter(w, he.hasMermaid)
 }
 
-func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sxMeta sexpr.Meta) *slideSet {
+func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sxMeta sexpr.Meta, astSF sxpf.SymbolFactory) *slideSet {
 	o, err := c.GetZettelOrder(ctx, zid)
 	if err != nil {
 		return nil
@@ -301,44 +308,44 @@ func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sx
 	slides := newSlideSetMeta(zid, sxMeta)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return c.GetZettel(ctx, zid, api.PartContent) }
 	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
-		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, sxpf.MakeMappedFactory()) // TODO
+		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, astSF)
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel)
 	return slides
 }
 
 func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
-	offset, title, htmlTitle, subtitle := 1, slides.Title(), "", slides.Subtitle()
-	if !title.IsEmpty() {
-		offset++
-		htmlTitle = evaluateInline(nil, title)
-	}
+	// offset, title, htmlTitle, subtitle := 1, slides.Title(), "", slides.Subtitle()
+	// if !title.IsEmpty() {
+	// 	offset++
+	// 	htmlTitle = evaluateInline(nil, title)
+	// }
 
-	writeHTMLHeader(w, slides.Lang(), "")
-	writeTitle(w, title)
-	writeHTMLBody(w)
-	if !title.IsEmpty() {
-		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlTitle)
-		if !subtitle.IsEmpty() {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", evaluateInline(nil, subtitle))
-		}
-	}
-	io.WriteString(w, "<ol>\n")
-	if !title.IsEmpty() {
-		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(1)\">%s</a></li>\n", slides.zid, htmlTitle)
-	}
-	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
-		var slideTitle string
-		if t := si.Slide.title; !t.IsEmpty() {
-			slideTitle = evaluateInline(nil, t)
-		} else {
-			slideTitle = string(si.Slide.zid)
-		}
-		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
-	}
-	io.WriteString(w, "</ol>\n")
-	fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid)
-	writeHTMLFooter(w, false)
+	// writeHTMLHeader(w, slides.Lang(), "")
+	// writeTitle(w, title)
+	// writeHTMLBody(w)
+	// if !title.IsEmpty() {
+	// 	fmt.Fprintf(w, "<h1>%s</h1>\n", htmlTitle)
+	// 	if !subtitle.IsEmpty() {
+	// 		fmt.Fprintf(w, "<h2>%s</h2>\n", evaluateInline(nil, subtitle))
+	// 	}
+	// }
+	// io.WriteString(w, "<ol>\n")
+	// if !title.IsEmpty() {
+	// 	fmt.Fprintf(w, "<li><a href=\"/%s.slide#(1)\">%s</a></li>\n", slides.zid, htmlTitle)
+	// }
+	// for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
+	// 	var slideTitle string
+	// 	if t := si.Slide.title; !t.IsEmpty() {
+	// 		slideTitle = evaluateInline(nil, t)
+	// 	} else {
+	// 		slideTitle = string(si.Slide.zid)
+	// 	}
+	// 	fmt.Fprintf(w, "<li><a href=\"/%s.slide#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
+	// }
+	// io.WriteString(w, "</ol>\n")
+	// fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid)
+	// writeHTMLFooter(w, false)
 }
 
 func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID, ren renderer) {
@@ -360,13 +367,13 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel)
 	ren.Prepare(ctx, cfg)
-	ren.Render(w, slides, slides.Author(cfg))
+	ren.Render(w, slides, cfg.astSF, slides.Author(cfg))
 }
 
 type renderer interface {
 	Role() string
 	Prepare(context.Context, *slidesConfig)
-	Render(w http.ResponseWriter, slides *slideSet, author string)
+	Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string)
 }
 
 type revealRenderer struct {
@@ -379,7 +386,7 @@ func (rr *revealRenderer) Prepare(ctx context.Context, cfg *slidesConfig) {
 		rr.userCSS = data
 	}
 }
-func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
+func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang, ".reveal ")
 	if len(rr.userCSS) > 0 {
@@ -398,18 +405,18 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 
 	io.WriteString(w, "<div class=\"reveal\">\n<div class=\"slides\">\n")
 	offset := 1
-	if !title.IsEmpty() {
-		offset++
-		fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", evaluateInline(nil, title))
-		if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
-			fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", evaluateInline(nil, subtitle))
-		}
-		if author != "" {
-			fmt.Fprintf(w, "\n<p class=\"author\">%s</p>", html.EscapeString(author))
-		}
-		io.WriteString(w, "\n</section>\n")
-	}
-	he := htmlNew(w, slides, rr, 1, false, true)
+	// if !title.IsEmpty() {
+	// 	offset++
+	// 	fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", evaluateInline(nil, title))
+	// 	if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
+	// 		fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", evaluateInline(nil, subtitle))
+	// 	}
+	// 	if author != "" {
+	// 		fmt.Fprintf(w, "\n<p class=\"author\">%s</p>", html.EscapeString(author))
+	// 	}
+	// 	io.WriteString(w, "\n</section>\n")
+	// }
+	he := htmlNew(w, slides, rr, 1, astSF, false, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		main := si.Child()
@@ -451,18 +458,18 @@ plugins: [ RevealHighlight, RevealNotes ]});</script>
 }
 
 func writeTitle(w http.ResponseWriter, title *sxpf.List) {
-	if !title.IsEmpty() {
+	if title != nil {
 		fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
 	}
 }
 
 func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
-	if title := si.Slide.title; !title.IsEmpty() {
-		fmt.Fprintf(w, "<h1>%s</h1>", evaluateInline(he, title))
-	}
-	he.SetUnique(fmt.Sprintf("%d:", si.Number))
-	he.EvaluateBlock(si.Slide.content)
-	he.WriteEndnotes()
+	// if title := si.Slide.title; !title.IsEmpty() {
+	// 	fmt.Fprintf(w, "<h1>%s</h1>", evaluateInline(he, title))
+	// }
+	// he.SetUnique(fmt.Sprintf("%d:", si.Number))
+	// he.EvaluateBlock(si.Slide.content)
+	// he.WriteEndnotes()
 	fmt.Fprintf(w, "\n<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
 }
 
@@ -470,7 +477,7 @@ type handoutRenderer struct{}
 
 func (*handoutRenderer) Role() string                           { return SlideRoleHandout }
 func (*handoutRenderer) Prepare(context.Context, *slidesConfig) {}
-func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
+func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
 	lang := slides.Lang()
 	writeHTMLHeader(w, lang, "")
 	io.WriteString(w, `<style type="text/css">
@@ -495,39 +502,39 @@ blockquote cite { font-style: normal }
 	writeMeta(w, "license", license)
 	writeHTMLBody(w)
 
-	offset := 1
-	if !title.IsEmpty() {
-		offset++
-		fmt.Fprintf(w, "<h1 id=\"(1)\">%s</h1>\n", evaluateInline(nil, title))
-		if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", evaluateInline(nil, subtitle))
-		}
-		writeEscapedString(w, author)
-		writeEscapedString(w, copyright)
-		writeEscapedString(w, license)
-	}
-	he := htmlNew(w, slides, hr, 1, true, false)
-	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
-		he.SetCurrentSlide(si)
-		sl := si.Slide
-		if title := sl.title; !title.IsEmpty() {
-			fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s%s</h1>\n", si.Number, evaluateInline(he, title), slideNoRange(si))
-		} else {
-			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", si.Number)
-		}
-		slLang := sl.lang
-		if slLang != "" && slLang != lang {
-			fmt.Fprintf(w, `<div lang="%s">`, slLang)
-		}
+	// offset := 1
+	// if !title.IsEmpty() {
+	// 	offset++
+	// 	fmt.Fprintf(w, "<h1 id=\"(1)\">%s</h1>\n", evaluateInline(nil, title))
+	// 	if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
+	// 		fmt.Fprintf(w, "<h2>%s</h2>\n", evaluateInline(nil, subtitle))
+	// 	}
+	// 	writeEscapedString(w, author)
+	// 	writeEscapedString(w, copyright)
+	// 	writeEscapedString(w, license)
+	// }
+	// he := htmlNew(w, slides, hr, 1, true, false)
+	// for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
+	// 	he.SetCurrentSlide(si)
+	// 	sl := si.Slide
+	// 	if title := sl.title; !title.IsEmpty() {
+	// 		fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s%s</h1>\n", si.Number, evaluateInline(he, title), slideNoRange(si))
+	// 	} else {
+	// 		fmt.Fprintf(w, "<a id=\"(%d)\"></a>", si.Number)
+	// 	}
+	// 	slLang := sl.lang
+	// 	if slLang != "" && slLang != lang {
+	// 		fmt.Fprintf(w, `<div lang="%s">`, slLang)
+	// 	}
 
-		he.SetUnique(fmt.Sprintf("%d:", si.Number))
-		he.EvaluateBlock(sl.content)
-		if slLang != "" && slLang != lang {
-			io.WriteString(w, "</div>")
-		}
-	}
-	he.WriteEndnotes()
-	writeHTMLFooter(w, slides.hasMermaid)
+	// 	he.SetUnique(fmt.Sprintf("%d:", si.Number))
+	// 	he.EvaluateBlock(sl.content)
+	// 	if slLang != "" && slLang != lang {
+	// 		io.WriteString(w, "</div>")
+	// 	}
+	// }
+	// he.WriteEndnotes()
+	// writeHTMLFooter(w, slides.hasMermaid)
 }
 
 func writeEscapedString(w http.ResponseWriter, s string) {
@@ -554,7 +561,7 @@ func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelCon
 	slides.Completion(getZettel, sGetZettel)
 }
 
-func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
+func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF sxpf.SymbolFactory) {
 	ctx := r.Context()
 	_, human, zl, err := c.ListZettelJSON(ctx, strings.Join(r.URL.Query()[api.QueryKeyQuery], " "))
 	if err != nil {
@@ -562,11 +569,11 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 		return
 	}
 	titles := make([]string, len(zl))
-	for i, jm := range zl {
-		if sMeta, err := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta, sxpf.MakeMappedFactory()); err == nil { // TODO
-			titles[i] = evaluateInline(nil, getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID))
-		}
-	}
+	// for i, jm := range zl {
+	// 	if sMeta, err := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta, astSF); err == nil { // TODO
+	// 		titles[i] = evaluateInline(nil, getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID))
+	// 	}
+	// }
 
 	var title string
 	if human == "" {
