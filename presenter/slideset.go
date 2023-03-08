@@ -44,10 +44,10 @@ type slide struct {
 	content *sxpf.List // Zettel / slide content
 }
 
-func newSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.List) *slide {
+func newSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.List, zs *sexpr.ZettelSymbols) *slide {
 	return &slide{
-		zid: zid,
-		// title:   getSlideTitleZid(sxMeta, zid),
+		zid:     zid,
+		title:   getSlideTitleZid(sxMeta, zid, zs),
 		lang:    sxMeta.GetString(api.KeyLang),
 		role:    sxMeta.GetString(KeySlideRole),
 		content: sxContent,
@@ -103,46 +103,59 @@ func (si *slideInfo) LastChild() *slideInfo {
 	return si.youngest
 }
 
-func (si *slideInfo) SplitChildren() {
+func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
 	var oldest, youngest *slideInfo
 	title := si.Slide.title
 	var content []sxpf.Object
 	for elem := si.Slide.content; !elem.IsNil(); elem = elem.Tail() {
-		// bn, err := elem.GetPair()
-		// if err != nil {
-		// 	return
-		// }
-		// sym, err := bn.GetSymbol()
-		// if err != nil {
-		// 	continue
-		// }
-		// if sym != sexpr.SymHeading {
-		// 	content = append(content, bn)
-		// 	continue
-		// }
-		// levelPair := bn.GetTail()
-		// if level, err := levelPair.GetInteger(); err != nil || level < 1 || level > 1 {
-		// 	content = append(content, bn)
-		// 	continue
-		// }
-		// nextTitle := levelPair.GetTail().GetTail().GetTail().GetTail()
-		// if nextTitle.IsEmpty() {
-		// 	content = append(content, bn)
-		// 	continue
-		// }
-		// slInfo := &slideInfo{
-		// 	prev:  youngest,
-		// 	Slide: si.Slide.MakeChild(title, sxpf.MakeList(content...)),
-		// }
-		// content = nil
-		// if oldest == nil {
-		// 	oldest = slInfo
-		// }
-		// if youngest != nil {
-		// 	youngest.next = slInfo
-		// }
-		// youngest = slInfo
-		// title = nextTitle
+		car := elem.Car()
+		if sxpf.IsNil(car) {
+			return
+		}
+		bn, ok := car.(*sxpf.List)
+		if !ok {
+			return
+		}
+		car = bn.Car()
+		if sxpf.IsNil(car) {
+			return
+		}
+		sym, ok := car.(*sxpf.Symbol)
+		if !ok {
+			continue
+		}
+		if sym != zs.SymHeading {
+			content = append(content, bn)
+			continue
+		}
+		levelPair := bn.Tail()
+		car = levelPair.Car()
+		num, ok := car.(*sxpf.Number)
+		if !ok {
+			return
+		}
+		if level := num.GetInt64(); level < 1 || level > 1 {
+			content = append(content, bn)
+			continue
+		}
+		nextTitle := levelPair.Tail().Tail().Tail().Tail()
+		if nextTitle != nil {
+			content = append(content, bn)
+			continue
+		}
+		slInfo := &slideInfo{
+			prev:  youngest,
+			Slide: si.Slide.MakeChild(title, sxpf.MakeList(content...)),
+		}
+		content = nil
+		if oldest == nil {
+			oldest = slInfo
+		}
+		if youngest != nil {
+			youngest.next = slInfo
+		}
+		youngest = slInfo
+		title = nextTitle
 	}
 	if oldest == nil {
 		oldest = &slideInfo{Slide: si.Slide.MakeChild(title, sxpf.MakeList(content...))}
@@ -196,20 +209,22 @@ type slideSet struct {
 	setImage    map[api.ZettelID]image
 	isCompleted bool
 	hasMermaid  bool
+	zs          *sexpr.ZettelSymbols
 }
 
-func newSlideSet(zid api.ZettelID, sxMeta sexpr.Meta) *slideSet {
+func newSlideSet(zid api.ZettelID, sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols) *slideSet {
 	if len(sxMeta) == 0 {
 		return nil
 	}
-	return newSlideSetMeta(zid, sxMeta)
+	return newSlideSetMeta(zid, sxMeta, zs)
 }
-func newSlideSetMeta(zid api.ZettelID, sxMeta sexpr.Meta) *slideSet {
+func newSlideSetMeta(zid api.ZettelID, sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols) *slideSet {
 	return &slideSet{
 		zid:      zid,
 		sxMeta:   sxMeta,
 		setSlide: make(map[api.ZettelID]*slide),
 		setImage: make(map[api.ZettelID]image),
+		zs:       zs,
 	}
 }
 
@@ -258,7 +273,7 @@ func (s *slideSet) slidesforShow(offset int) *slideInfo {
 		si.Number = slideNo
 		prev = si
 
-		si.SplitChildren()
+		si.SplitChildren(s.zs)
 		main := si.Child()
 		main.SlideNo = slideNo
 		main.Number = slideNo
@@ -301,8 +316,8 @@ func (s *slideSet) slidesForHandout(offset int) *slideInfo {
 	}
 	return first
 }
-func (*slideSet) addChildrenForHandout(si *slideInfo, slideNo *int) {
-	si.SplitChildren()
+func (s *slideSet) addChildrenForHandout(si *slideInfo, slideNo *int) {
+	si.SplitChildren(s.zs)
 	main := si.Child()
 	main.SlideNo = *slideNo
 	for sub := main.Next(); sub != nil; sub = sub.Next() {
@@ -347,7 +362,7 @@ func (s *slideSet) License() string   { return s.sxMeta.GetString(api.KeyLicense
 type getZettelContentFunc func(api.ZettelID) ([]byte, error)
 type sGetZettelFunc func(api.ZettelID) (sxpf.Object, error)
 
-func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc) {
+func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc, zs *sexpr.ZettelSymbols) {
 	if sl, found := s.setSlide[zid]; found {
 		s.seqSlide = append(s.seqSlide, sl)
 		return
@@ -363,39 +378,39 @@ func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc) {
 		// TODO: Add artificial slide with error message
 		return
 	}
-	sl := newSlide(zid, sxMeta, sxContent)
+	sl := newSlide(zid, sxMeta, sxContent, zs)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) AdditionalSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.List) {
+func (s *slideSet) AdditionalSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.List, zs *sexpr.ZettelSymbols) {
 	// TODO: if first, add slide with text "additional content"
-	sl := newSlide(zid, sxMeta, sxContent)
+	sl := newSlide(zid, sxMeta, sxContent, zs)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelSexpr sGetZettelFunc) {
+func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelSexpr sGetZettelFunc, zs *sexpr.ZettelSymbols) {
 	if s.isCompleted {
 		return
 	}
-	// env := collectEnv{s: s, getZettel: getZettel, sGetZettel: getZettelSexpr}
-	// env.initCollection(s)
-	// for {
-	// 	zid, found := env.pop()
-	// 	if !found {
-	// 		break
-	// 	}
-	// 	if zid == api.InvalidZID {
-	// 		continue
-	// 	}
-	// 	sl := s.GetSlide(zid)
-	// 	if sl == nil {
-	// 		panic(zid)
-	// 	}
-	// 	env.mark(zid)
-	// 	sxpf.Eval(&env, sl.content)
-	// }
+	env := collectEnv{zs: zs, s: s, getZettel: getZettel, sGetZettel: getZettelSexpr}
+	env.initCollection(s)
+	for {
+		zid, found := env.pop()
+		if !found {
+			break
+		}
+		if zid == api.InvalidZID {
+			continue
+		}
+		sl := s.GetSlide(zid)
+		if sl == nil {
+			panic(zid)
+		}
+		env.mark(zid)
+		// 	sxpf.Eval(&env, sl.content)
+	}
 	// s.hasMermaid = env.hasMermaid
 	s.isCompleted = true
 }
@@ -427,6 +442,7 @@ func (ce *collectEnv) isMarked(zid api.ZettelID) bool {
 }
 
 type collectEnv struct {
+	zs         *sexpr.ZettelSymbols
 	s          *slideSet
 	getZettel  getZettelContentFunc
 	sGetZettel sGetZettelFunc
@@ -516,7 +532,7 @@ func (ce *collectEnv) visitZettel(zid api.ZettelID) {
 		// log.Println("VISZ", zid, vis)
 		return
 	}
-	ce.s.AdditionalSlide(zid, sxMeta, sxContent)
+	ce.s.AdditionalSlide(zid, sxMeta, sxContent, ce.zs)
 	ce.push(zid)
 }
 
@@ -557,5 +573,5 @@ func getSlideTitleZid(sxMeta sexpr.Meta, zid api.ZettelID, zs *sexpr.ZettelSymbo
 	if title := getSlideTitle(sxMeta); title != nil {
 		return title
 	}
-	return sxpf.Cons(sxpf.Cons(zs.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil())), sxpf.Nil())
+	return sxpf.MakeList(zs.SymInline, sxpf.MakeList(zs.SymText, sxpf.MakeString(string(zid))))
 }

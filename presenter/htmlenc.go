@@ -11,11 +11,93 @@
 package main
 
 import (
+	_ "embed"
 	"io"
+	"log"
+	"net/http"
 
+	"codeberg.org/t73fde/sxhtml"
 	"codeberg.org/t73fde/sxpf"
+	"zettelstore.de/c/sexpr"
 	"zettelstore.de/c/shtml"
 )
+
+type htmlGenerator struct {
+	tr             *shtml.Transformer
+	s              *slideSet
+	curSlide       *slideInfo
+	ren            renderer
+	embedImage     bool
+	extZettelLinks bool
+	hasMermaid     bool
+}
+
+func newGenerator(headingOffset int, sf sxpf.SymbolFactory, slides *slideSet, ren renderer) *htmlGenerator {
+	tr := shtml.NewTransformer(headingOffset, sf)
+	gen := htmlGenerator{
+		tr:  tr,
+		s:   slides,
+		ren: ren,
+	}
+	tr.SetRebinder(func(te *shtml.TransformEnv) {
+		te.Rebind(sexpr.NameSymLiteralComment, func(sxpf.Environment, *sxpf.List, sxpf.Callable) sxpf.Object { return sxpf.Nil() })
+	})
+	return &gen
+}
+func (gen *htmlGenerator) SetUnique(s string)            { gen.tr.SetUnique(s) }
+func (gen *htmlGenerator) SetCurrentSlide(si *slideInfo) { gen.curSlide = si }
+
+func (gen *htmlGenerator) Transform(astLst *sxpf.List) *sxpf.List {
+	result, err := gen.tr.Transform(astLst)
+	if err != nil {
+		log.Println("ETRA", err)
+	}
+	return result
+}
+func (gen *htmlGenerator) TransformInline(astLst *sxpf.List, noFootnote, noLinks bool) *sxpf.List {
+	result, err := gen.tr.TransformInline(astLst, noFootnote, noLinks)
+	if err != nil {
+		log.Println("ETRA", err)
+	}
+	return result
+}
+
+func (gen *htmlGenerator) Endnotes() *sxpf.List { return gen.tr.Endnotes() }
+
+func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, headHtml, bodyHtml *sxpf.List) {
+	sf := gen.tr.SymbolFactory()
+	var langAttr *sxpf.List
+	if lang != "" {
+		langAttr = sxpf.MakeList(sf.MustMake(sxhtml.NameSymAttr), sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(lang)))
+	}
+	if gen.hasMermaid {
+		attr := sxpf.MakeList(
+			sf.MustMake(sxhtml.NameSymAttr),
+			sxpf.Cons(sf.MustMake("type"), sxpf.MakeString("text/javascript")),
+		)
+		curr := bodyHtml.Tail().Last()
+		curr = curr.AppendBang(sxpf.MakeList(
+			sf.MustMake("script"),
+			attr,
+			sxpf.MakeList(sf.MustMake(sxhtml.NameSymCDATA), sxpf.MakeString(mermaid)),
+		))
+		curr.AppendBang(sxpf.MakeList(
+			sf.MustMake("script"),
+			attr,
+			sxpf.MakeString("mermaid.initialize({startOnLoad:true});"),
+		))
+	}
+	zettelHtml := sxpf.MakeList(
+		sf.MustMake(sxhtml.NameSymDoctype),
+		sxpf.MakeList(sf.MustMake("html"), langAttr, headHtml, bodyHtml),
+	)
+	g := sxhtml.NewGenerator(sf, sxhtml.WithNewline)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	g.WriteHTML(w, zettelHtml)
+}
+
+//go:embed mermaid/mermaid.min.js
+var mermaid string
 
 func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, sf sxpf.SymbolFactory, embedImage, extZettelLinks bool) *htmlV {
 	// env := html.NewEncEnvironment(w, headingOffset)
@@ -40,8 +122,6 @@ func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, sf sxpf.
 	// env.Builtins.Set(sexpr.SymLiteralComment, sxpf.NewBuiltin("lit-comm", true, 1, -1, formNothing))
 	return v
 }
-
-func formNothing(sxpf.Environment, *sxpf.List, int) (sxpf.Object, error) { return nil, nil }
 
 func (v *htmlV) SetUnique(s string)            { v.tr.SetUnique(s) }
 func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
