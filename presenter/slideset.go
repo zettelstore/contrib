@@ -110,19 +110,11 @@ func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
 	var content []sxpf.Object
 	// First element of si.Slide.content is the BLOCK symbol. Ignore it.
 	for elem := si.Slide.content.Tail(); !elem.IsNil(); elem = elem.Tail() {
-		car := elem.Car()
-		if sxpf.IsNil(car) {
+		bn, ok := sxpf.GetList(elem.Car())
+		if !ok || bn == nil {
 			break
 		}
-		bn, ok := car.(*sxpf.List)
-		if !ok {
-			break
-		}
-		car = bn.Car()
-		if sxpf.IsNil(car) {
-			break
-		}
-		sym, ok := car.(*sxpf.Symbol)
+		sym, ok := sxpf.GetSymbol(bn.Car())
 		if !ok {
 			break
 		}
@@ -131,8 +123,7 @@ func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
 			continue
 		}
 		levelPair := bn.Tail()
-		car = levelPair.Car()
-		num, ok := car.(*sxpf.Number)
+		num, ok := sxpf.GetNumber(levelPair.Car())
 		if !ok {
 			break
 		}
@@ -140,9 +131,8 @@ func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
 			content = append(content, bn)
 			continue
 		}
-		log.Println("HHHH", levelPair.Tail().Tail().Tail())
+
 		nextTitle := levelPair.Tail().Tail().Tail().Tail()
-		log.Println("NXTI", nextTitle)
 		if nextTitle == nil {
 			content = append(content, bn)
 			continue
