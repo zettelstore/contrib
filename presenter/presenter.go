@@ -272,7 +272,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zi
 	sf := sxpf.MakeMappedFactory()
 	gen := newGenerator(1, sf, nil, nil)
 
-	headHtml := getHTMLHead(sf)
+	headHtml := getHTMLHead("", sf)
 	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
 
 	headerHtml := sxpf.MakeList(
@@ -363,7 +363,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	sf := sxpf.MakeMappedFactory()
 	gen := newGenerator(1, sf, nil, nil)
 
-	headHtml := getHTMLHead(sf)
+	headHtml := getHTMLHead("", sf)
 	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
 
 	headerHtml := sxpf.MakeList(
@@ -527,18 +527,6 @@ type handoutRenderer struct{}
 func (*handoutRenderer) Role() string                           { return SlideRoleHandout }
 func (*handoutRenderer) Prepare(context.Context, *slidesConfig) {}
 func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
-	io.WriteString(w, `<style type="text/css">
-blockquote {
-  border-left: 0.5rem solid lightgray;
-  padding-left: 1rem;
-  margin-left: 1rem;
-  margin-right: 2rem;
-  font-style: italic;
-}
-blockquote p { margin-bottom: .5rem }
-blockquote cite { font-style: normal }
-</style>
-`)
 	sf := sxpf.MakeMappedFactory()
 	symAttr := sf.MustMake(sxhtml.NameSymAttr)
 	gen := newGenerator(1, sf, slides, hr)
@@ -547,7 +535,17 @@ blockquote cite { font-style: normal }
 	copyright := slides.Copyright()
 	license := slides.License()
 
-	headHtml := getHTMLHead(sf)
+	const extraCss = `blockquote {
+  border-left: 0.5rem solid lightgray;
+  padding-left: 1rem;
+  margin-left: 1rem;
+  margin-right: 2rem;
+  font-style: italic;
+}
+blockquote p { margin-bottom: .5rem }
+blockquote cite { font-style: normal }
+`
+	headHtml := getHTMLHead(extraCss, sf)
 	headHtml.Last().AppendBang(getSimpleMeta("author", author, sf)).
 		AppendBang(getSimpleMeta("copyright", copyright, sf)).
 		AppendBang(getSimpleMeta("license", license, sf)).
@@ -648,7 +646,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 		human = "Search: " + human
 	}
 
-	headHtml := getHTMLHead(sf)
+	headHtml := getHTMLHead("", sf)
 	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(title)))
 
 	ul := sxpf.MakeList(sf.MustMake("ul"))
@@ -662,7 +660,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 	gen.writeHTMLDocument(w, "", headHtml, bodyHtml)
 }
 
-func getHTMLHead(sf sxpf.SymbolFactory) *sxpf.List {
+func getHTMLHead(extraCss string, sf sxpf.SymbolFactory) *sxpf.List {
 	symAttr := sf.MustMake(sxhtml.NameSymAttr)
 	return sxpf.MakeList(
 		sf.MustMake("head"),
@@ -677,7 +675,7 @@ func getHTMLHead(sf sxpf.SymbolFactory) *sxpf.List {
 			sxpf.Cons(sf.MustMake("name"), sxpf.MakeString("generator")),
 			sxpf.Cons(sf.MustMake("content"), sxpf.MakeString("Zettel Presenter")),
 		)),
-		getDefaultCSS("", sf),
+		getPrefixedCSS("", extraCss, sf),
 	)
 }
 
@@ -692,8 +690,11 @@ var defaultCSS = []string{
 	"a.broken { text-decoration: line-through }",
 }
 
-func getDefaultCSS(prefix string, sf sxpf.SymbolFactory) *sxpf.List {
+func getPrefixedCSS(prefix string, extraCss string, sf sxpf.SymbolFactory) *sxpf.List {
 	var result *sxpf.List
+	if extraCss != "" {
+		result = result.Cons(sxpf.MakeString(extraCss))
+	}
 	for i := range defaultCSS {
 		result = result.Cons(sxpf.MakeString(prefix + defaultCSS[len(defaultCSS)-i-1] + "\n"))
 	}
