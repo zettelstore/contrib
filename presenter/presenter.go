@@ -17,7 +17,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"log"
 	"net/http"
@@ -38,7 +37,7 @@ import (
 // Constants for minimum required version.
 const (
 	minMajor = 0
-	minMinor = 12
+	minMinor = 9
 )
 
 func hasVersion(major, minor int) bool {
@@ -156,13 +155,14 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	if err != nil {
 		return slidesConfig{}, err
 	}
+	astSF := sxpf.MakeMappedFactory()
 	result := slidesConfig{
 		c:            c,
-		astSF:        sxpf.MakeMappedFactory(),
+		astSF:        astSF,
 		zs:           &sexpr.ZettelSymbols{},
 		slideSetRole: DefaultSlideSetRole,
 	}
-	result.zs.InitializeZettelSymbols(result.astSF)
+	result.zs.InitializeZettelSymbols(astSF)
 	if ssr, ok := m[KeySlideSetRole]; ok {
 		result.slideSetRole = ssr
 	}
@@ -412,7 +412,7 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 	slides := newSlideSet(zid, sexpr.MakeMeta(sMeta), cfg.zs)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return cfg.c.GetZettel(ctx, zid, api.PartContent) }
 	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
-		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, sxpf.MakeMappedFactory()) //TODO
+		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, cfg.astSF)
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel, cfg.zs)
 	ren.Prepare(ctx, cfg)
@@ -527,8 +527,6 @@ type handoutRenderer struct{}
 func (*handoutRenderer) Role() string                           { return SlideRoleHandout }
 func (*handoutRenderer) Prepare(context.Context, *slidesConfig) {}
 func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
-	lang := slides.Lang()
-	// writeHTMLHeader(w, lang, "")
 	io.WriteString(w, `<style type="text/css">
 blockquote {
   border-left: 0.5rem solid lightgray;
@@ -556,6 +554,7 @@ blockquote cite { font-style: normal }
 		AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
 
 	offset := 1
+	lang := slides.Lang()
 	headerHtml := sxpf.MakeList(sf.MustMake("header"))
 	if title != nil {
 		offset++
@@ -728,11 +727,6 @@ func getSimpleMeta(key, val string, sf sxpf.SymbolFactory) *sxpf.List {
 			sxpf.Cons(sf.MustMake(key), sxpf.MakeString(val)),
 		),
 	)
-}
-func writeMeta(w http.ResponseWriter, key, val string) {
-	if val != "" {
-		fmt.Fprintf(w, "<meta name=\"%s\" content=\"%s\" />\n", key, html.EscapeString(val))
-	}
 }
 
 //go:embed revealjs

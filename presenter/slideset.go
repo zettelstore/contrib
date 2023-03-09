@@ -104,27 +104,29 @@ func (si *slideInfo) LastChild() *slideInfo {
 }
 
 func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
+
 	var oldest, youngest *slideInfo
 	title := si.Slide.title
 	var content []sxpf.Object
-	for elem := si.Slide.content; !elem.IsNil(); elem = elem.Tail() {
+	// First element of si.Slide.content is the BLOCK symbol. Ignore it.
+	for elem := si.Slide.content.Tail(); !elem.IsNil(); elem = elem.Tail() {
 		car := elem.Car()
 		if sxpf.IsNil(car) {
-			return
+			break
 		}
 		bn, ok := car.(*sxpf.List)
 		if !ok {
-			return
+			break
 		}
 		car = bn.Car()
 		if sxpf.IsNil(car) {
-			return
+			break
 		}
 		sym, ok := car.(*sxpf.Symbol)
 		if !ok {
-			continue
+			break
 		}
-		if sym != zs.SymHeading {
+		if !sym.IsEqual(zs.SymHeading) {
 			content = append(content, bn)
 			continue
 		}
@@ -132,14 +134,16 @@ func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
 		car = levelPair.Car()
 		num, ok := car.(*sxpf.Number)
 		if !ok {
-			return
+			break
 		}
-		if level := num.GetInt64(); level < 1 || level > 1 {
+		if level := num.GetInt64(); level != 1 {
 			content = append(content, bn)
 			continue
 		}
+		log.Println("HHHH", levelPair.Tail().Tail().Tail())
 		nextTitle := levelPair.Tail().Tail().Tail().Tail()
-		if nextTitle != nil {
+		log.Println("NXTI", nextTitle)
+		if nextTitle == nil {
 			content = append(content, bn)
 			continue
 		}
@@ -260,8 +264,10 @@ func (s *slideSet) slidesforShow(offset int) *slideInfo {
 			continue
 		}
 		si := &slideInfo{
-			prev:  prev,
-			Slide: sl,
+			prev:    prev,
+			Slide:   sl,
+			SlideNo: slideNo,
+			Number:  slideNo,
 		}
 		if first == nil {
 			first = si
@@ -269,8 +275,6 @@ func (s *slideSet) slidesforShow(offset int) *slideInfo {
 		if prev != nil {
 			prev.next = si
 		}
-		si.SlideNo = slideNo
-		si.Number = slideNo
 		prev = si
 
 		si.SplitChildren(s.zs)
