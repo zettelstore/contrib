@@ -403,9 +403,9 @@ func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelSexpr sGe
 			panic(zid)
 		}
 		env.mark(zid)
-		// 	sxpf.Eval(&env, sl.content)
+		env.visitContent(sl.content)
 	}
-	// s.hasMermaid = env.hasMermaid
+	s.hasMermaid = env.hasMermaid
 	s.isCompleted = true
 }
 
@@ -445,65 +445,84 @@ type collectEnv struct {
 	hasMermaid bool
 }
 
-// func (ce *collectEnv) LookupForm(sym *sxpf.Symbol) (sxpf.Form, error) {
-// 	switch sym {
-// 	case sexpr.SymVerbatimEval:
-// 		return verbEvalFn, nil
-// 	case sexpr.SymLinkZettel:
-// 		return linkZettelFn, nil
-// 	case sexpr.SymEmbed:
-// 		return embedFn, nil
-// 	}
-// 	return ignoreFn, nil
-// }
-
-// var (
-// 	verbEvalFn = sxpf.NewBuiltin("verbatim-eval", true, 1, -1,
-// 		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
-// 			if hasMermaidAttribute(args) {
-// 				env.(*collectEnv).hasMermaid = true
-// 			}
-// 			return nil, nil
-// 		})
-// 	linkZettelFn = sxpf.NewBuiltin("link-zettel", true, 2, -1,
-// 		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.Object, error) {
-// 			if zidVal, err := args.Tail().GetString(); err == nil {
-// 				zid := api.ZettelID(zidVal)
-// 				if zid.IsValid() {
-// 					env.(*collectEnv).visitZettel(zid)
-// 				}
-// 			}
-// 			return nil, nil
-// 		})
-// 	embedFn = sxpf.NewBuiltin("embed-inline", true, 3, -1,
-// 		func(env sxpf.Environment, args *sxpf.List, _ int) (sxpf.List, error) {
-// 			argRef := args.Tail()
-// 			if ref, err := argRef.GetPair(); err == nil && ref.GetFirst() == sexpr.SymRefStateZettel {
-// 				if zidVal, ok := ref.GetTail().GetString(); ok == nil {
-// 					zid := api.ZettelID(zidVal)
-// 					if syntax, err := argRef.Tail().GetString(); err == nil && zid.IsValid() {
-// 						env.(*collectEnv).visitImage(zid, syntax)
-// 					}
-// 				}
-// 			}
-// 			return nil, nil
-// 		})
-// 	ignoreFn = sxpf.NewBuiltin("traverse", false, 0, -1,
-// 		func(sxpf.Environment, *sxpf.List, int) (sxpf.Object, error) { return nil, nil })
-// )
+func (ce *collectEnv) visitContent(content *sxpf.List) {
+	if content == nil {
+		return
+	}
+	for elem := content.Tail(); elem != nil; elem = elem.Tail() {
+		switch o := elem.Car().(type) {
+		case *sxpf.List:
+			sym, ok := sxpf.GetSymbol(o.Car())
+			if !ok {
+				continue
+			}
+			zs := ce.zs
+			if zs.SymText.IsEql(sym) || zs.SymSpace.IsEql(sym) {
+				continue
+			}
+			if zs.SymVerbatimEval.IsEql(sym) {
+				if hasMermaidAttribute(o.Tail()) {
+					ce.hasMermaid = true
+				}
+			} else if zs.SymLinkZettel.IsEql(sym) {
+				if zidVal, ok := sxpf.GetString(o.Tail().Tail().Car()); ok {
+					if zid := api.ZettelID(zidVal); zid.IsValid() {
+						ce.visitZettel(zid)
+					}
+				}
+			} else if zs.SymEmbed.IsEql(sym) {
+				argRef := o.Tail().Tail()
+				qref, ok := sxpf.GetList(argRef.Car())
+				if !ok {
+					continue
+				}
+				ref, ok := sxpf.GetList(qref.Tail().Car())
+				if !ok {
+					continue
+				}
+				sym, ok := sxpf.GetSymbol(ref.Car())
+				if !ok || !zs.SymRefStateZettel.IsEql(sym) {
+					continue
+				}
+				zidVal, ok := sxpf.GetString(ref.Tail().Car())
+				if !ok {
+					continue
+				}
+				zid := api.ZettelID(zidVal)
+				if !zid.IsValid() {
+					continue
+				}
+				syntax, ok := sxpf.GetString(argRef.Tail().Car())
+				if !ok {
+					continue
+				}
+				ce.visitImage(zid, syntax.String())
+			} else {
+				ce.visitContent(o)
+			}
+		case *sxpf.Number:
+		case sxpf.String:
+		default:
+			log.Printf("ELEM %T/%v", o, o)
+		}
+	}
+}
 
 func hasMermaidAttribute(args *sxpf.List) bool {
-	if p, ok := args.Car().(*sxpf.List); ok {
-		if syntax, found := sexpr.GetAttributes(p).Get(""); found && syntax == SyntaxMermaid {
-			return true
-		}
+	lst, ok := sxpf.GetList(args.Car())
+	if !ok {
+		return false
+	}
+	attr, ok := sxpf.GetList(lst.Tail().Car())
+	if !ok {
+		return false
+	}
+	a := sexpr.GetAttributes(attr)
+	if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
+		return true
 	}
 	return false
 }
-
-// func (ce *collectEnv) EvalPair(p *sxpf.List) (sxpf.Object, error)       { return sxpf.EvalCallOrSeq(ce, p) }
-func (ce *collectEnv) EvalSymbol(sym *sxpf.Symbol) (sxpf.Object, error) { return sym, nil }
-func (ce *collectEnv) EvalOther(val sxpf.Object) (sxpf.Object, error)   { return val, nil }
 
 func (ce *collectEnv) visitZettel(zid api.ZettelID) {
 	if ce.isMarked(zid) || ce.s.GetSlide(zid) != nil {
