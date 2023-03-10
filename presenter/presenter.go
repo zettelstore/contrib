@@ -270,7 +270,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zi
 	title := getSlideTitleZid(sxMeta, zid, cfg.zs)
 
 	sf := sxpf.MakeMappedFactory()
-	gen := newGenerator(1, sf, nil, nil)
+	gen := newGenerator(1, sf, nil, nil, true, false)
 
 	headHtml := getHTMLHead("", sf)
 	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
@@ -361,7 +361,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	}
 
 	sf := sxpf.MakeMappedFactory()
-	gen := newGenerator(1, sf, nil, nil)
+	gen := newGenerator(1, sf, nil, nil, false, false)
 
 	headHtml := getHTMLHead("", sf)
 	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
@@ -465,7 +465,7 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF 
 	// 	}
 	// 	io.WriteString(w, "\n</section>\n")
 	// }
-	he := htmlNew(w, slides, rr, 1, astSF, false, true)
+	he := htmlNew(w, slides, rr, 1, false, true)
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
 		he.SetCurrentSlide(si)
 		main := si.Child()
@@ -529,7 +529,7 @@ func (*handoutRenderer) Prepare(context.Context, *slidesConfig) {}
 func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
 	sf := sxpf.MakeMappedFactory()
 	symAttr := sf.MustMake(sxhtml.NameSymAttr)
-	gen := newGenerator(1, sf, slides, hr)
+	gen := newGenerator(1, sf, slides, hr, false, true)
 
 	title := slides.Title()
 	copyright := slides.Copyright()
@@ -544,6 +544,7 @@ func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF
 }
 blockquote p { margin-bottom: .5rem }
 blockquote cite { font-style: normal }
+aside.handout { border: 0.2rem solid lightgray }
 `
 	headHtml := getHTMLHead(extraCss, sf)
 	headHtml.Last().AppendBang(getSimpleMeta("author", author, sf)).
@@ -628,7 +629,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 	log.Println("LIST", human, zl)
 
 	sf := sxpf.MakeMappedFactory()
-	gen := newGenerator(1, sf, nil, nil)
+	gen := newGenerator(1, sf, nil, nil, false, false)
 
 	titles := make([]*sxpf.List, len(zl))
 	for i, jm := range zl {
