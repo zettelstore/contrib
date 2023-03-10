@@ -426,100 +426,124 @@ type renderer interface {
 }
 
 type revealRenderer struct {
-	userCSS []byte
+	userCSS string
 }
 
 func (*revealRenderer) Role() string { return SlideRoleShow }
 func (rr *revealRenderer) Prepare(ctx context.Context, cfg *slidesConfig) {
-	if data, err := cfg.c.GetZettel(ctx, zidSlideCSS, api.PartContent); err == nil {
-		rr.userCSS = data
+	if data, err := cfg.c.GetZettel(ctx, zidSlideCSS, api.PartContent); err == nil && len(data) > 0 {
+		rr.userCSS = string(data)
 	}
 }
 func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
-	lang := slides.Lang()
-	// writeHTMLHeader(w, lang, ".reveal ")
-	if len(rr.userCSS) > 0 {
-		io.WriteString(w, `<style type="text/css">`)
-		w.Write(rr.userCSS)
-		io.WriteString(w, "</style>\n")
-	}
+	sf := sxpf.MakeMappedFactory()
+	// symAttr := sf.MustMake(sxhtml.NameSymAttr)
+	gen := newGenerator(1, sf, slides, rr, true, false)
 
 	title := slides.Title()
-	writeTitle(w, title)
-	io.WriteString(w, `<link rel="stylesheet" href="revealjs/reveal.css">
-<link rel="stylesheet" href="revealjs/theme/white.css">
-<link rel="stylesheet" href="revealjs/plugin/highlight/default.css">
-`)
-	// writeHTMLBody(w)
 
-	io.WriteString(w, "<div class=\"reveal\">\n<div class=\"slides\">\n")
+	headHtml := getHTMLHead(rr.userCSS, sf)
+	headHtml.Last().AppendBang(getHeadLink("stylesheet", "revealjs/reveal.css", sf)).
+		AppendBang(getHeadLink("stylesheet", "revealjs/theme/white.css", sf)).
+		AppendBang(getHeadLink("stylesheet", "revealjs/plugin/highlight/default.css", sf)).
+		AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
+	lang := slides.Lang()
+
+	//io.WriteString(w, "<div class=\"reveal\">\n<div class=\"slides\">\n")
+	slidesHtml := sxpf.MakeList(sf.MustMake("div"), getClassAttr("slides", sf))
+	revealHtml := sxpf.MakeList(sf.MustMake("div"), getClassAttr("reveal", sf), slidesHtml)
 	offset := 1
-	// if !title.IsEmpty() {
-	// 	offset++
-	// 	fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", evaluateInline(nil, title))
-	// 	if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
-	// 		fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", evaluateInline(nil, subtitle))
-	// 	}
-	// 	if author != "" {
-	// 		fmt.Fprintf(w, "\n<p class=\"author\">%s</p>", html.EscapeString(author))
-	// 	}
-	// 	io.WriteString(w, "\n</section>\n")
-	// }
-	he := htmlNew(w, slides, rr, 1, false, true)
-	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
-		he.SetCurrentSlide(si)
-		main := si.Child()
-		sub := main.Next()
-		if sub != nil {
-			io.WriteString(w, "<section>\n")
-		}
-		fmt.Fprintf(w, `<section id="(%d)"`, main.SlideNo)
-		if slLang := main.Slide.lang; slLang != "" && slLang != lang {
-			fmt.Fprintf(w, ` lang="%s"`, slLang)
-		}
-		io.WriteString(w, ">\n")
-		renderRevealSlide(w, he, main)
-		io.WriteString(w, "</section>\n")
-
-		if sub != nil {
-			for {
-				fmt.Fprintf(w, "<section id=\"(%d)\">\n", sub.SlideNo)
-				renderRevealSlide(w, he, sub)
-				io.WriteString(w, "</section>\n")
-				sub = sub.Next()
-				if sub == nil {
-					break
-				}
-			}
-			io.WriteString(w, "</section>\n")
-		}
-	}
-	io.WriteString(w, `</div>
-</div>
-<script src="revealjs/plugin/highlight/highlight.js"></script>
-<script src="revealjs/plugin/notes/notes.js"></script>
-<script src="revealjs/reveal.js"></script>
-<script>Reveal.initialize({width: 1920, height: 1024, center: true,
-slideNumber: "c", hash: true,
-plugins: [ RevealHighlight, RevealNotes ]});</script>
-`)
-	// writeHTMLFooter(w, slides.hasMermaid)
-}
-
-func writeTitle(w http.ResponseWriter, title *sxpf.List) {
 	if title != nil {
-		fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
+		offset++
+		slideHtml := sxpf.MakeList(
+			sf.MustMake("section"),
+			gen.TransformInline(title, false, false).Cons(getClassAttr("title", sf)).Cons(sf.MustMake("h1")),
+		)
+		slidesHtml = slidesHtml.Last().AppendBang(slideHtml)
+		slideHtml = slideHtml.Last()
+		if subtitle := slides.Subtitle(); subtitle != nil {
+			slideHtml = slideHtml.AppendBang(gen.TransformInline(subtitle, false, false).Cons(getClassAttr("subtitle", sf)).Cons(sf.MustMake("h2")))
+		}
+		if author != "" {
+			slideHtml.AppendBang(sxpf.MakeList(
+				sf.MustMake("p"),
+				getClassAttr("author", sf),
+				sxpf.MakeString(author),
+			))
+		}
 	}
+
+	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
+		gen.SetCurrentSlide(si)
+		main := si.Child()
+		rSlideHtml := getRevealSlide(gen, main, lang, sf)
+		if sub := main.Next(); sub != nil {
+			rSlideHtml = sxpf.MakeList(sf.MustMake("section"), rSlideHtml)
+			curr := rSlideHtml.Last()
+			for ; sub != nil; sub = sub.Next() {
+				curr = curr.AppendBang(getRevealSlide(gen, sub, main.Slide.lang, sf))
+			}
+		}
+		slidesHtml = slidesHtml.AppendBang(rSlideHtml)
+	}
+
+	bodyHtml := sxpf.MakeList(
+		sf.MustMake("body"),
+		revealHtml,
+		getJSFileScript("revealjs/plugin/highlight/highlight.js", sf),
+		getJSFileScript("revealjs/plugin/notes/notes.js", sf),
+		getJSFileScript("revealjs/reveal.js", sf),
+		getJSScript(`Reveal.initialize({width: 1920, height: 1024, center: true, slideNumber: "c", hash: true, plugins: [ RevealHighlight, RevealNotes ]});`, sf),
+	)
+
+	gen.writeHTMLDocument(w, lang, headHtml, bodyHtml)
 }
 
-func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
-	// if title := si.Slide.title; !title.IsEmpty() {
-	// 	fmt.Fprintf(w, "<h1>%s</h1>", evaluateInline(he, title))
-	// }
-	// he.SetUnique(fmt.Sprintf("%d:", si.Number))
-	// he.EvaluateBlock(si.Slide.content)
-	// he.WriteEndnotes()
-	fmt.Fprintf(w, "\n<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
+func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.SymbolFactory) *sxpf.List {
+	symAttr := sf.MustMake(sxhtml.NameSymAttr)
+	attr := sxpf.MakeList(
+		symAttr,
+		sxpf.Cons(sf.MustMake("id"), sxpf.MakeString(fmt.Sprintf("(%d)", si.SlideNo))),
+	)
+	if slLang := si.Slide.lang; slLang != "" && slLang != lang {
+		attr.Last().AppendBang(sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(slLang)))
+	}
+
+	var titleHtml *sxpf.List
+	if title := si.Slide.title; title != nil {
+		titleHtml = gen.Transform(title).Cons(sf.MustMake("h1"))
+	}
+	gen.SetUnique(fmt.Sprintf("%d:", si.Number))
+	content := si.Slide.content
+	return sxpf.MakeList(
+		sf.MustMake("section"),
+		attr,
+		titleHtml,
+		gen.Transform(content.Head()),
+		gen.Endnotes(),
+		sxpf.MakeList(
+			sf.MustMake("p"),
+			sxpf.MakeList(
+				sf.MustMake("a"),
+				sxpf.MakeList(
+					symAttr,
+					sxpf.Cons(sf.MustMake("href"), sxpf.MakeString(string(si.Slide.zid))),
+					sxpf.Cons(sf.MustMake("target"), sxpf.MakeString("_blank")),
+				),
+				sxpf.MakeString("\u266e"),
+			),
+		),
+	)
+}
+
+func getJSFileScript(src string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake("script"),
+		sxpf.MakeList(
+			sf.MustMake(sxhtml.NameSymAttr),
+			sxpf.Cons(sf.MustMake("src"), sxpf.MakeString(src)),
+		),
+	)
 }
 
 type handoutRenderer struct{}
@@ -728,6 +752,23 @@ func getSimpleMeta(key, val string, sf sxpf.SymbolFactory) *sxpf.List {
 			sf.MustMake(sxhtml.NameSymAttr),
 			sxpf.Cons(sf.MustMake(key), sxpf.MakeString(val)),
 		),
+	)
+}
+
+func getHeadLink(rel, href string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake("link"),
+		sxpf.MakeList(
+			sf.MustMake(sxhtml.NameSymAttr),
+			sxpf.Cons(sf.MustMake("rel"), sxpf.MakeString(rel)),
+			sxpf.Cons(sf.MustMake("href"), sxpf.MakeString(href)),
+		))
+}
+
+func getClassAttr(class string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake(sxhtml.NameSymAttr),
+		sxpf.Cons(sf.MustMake("class"), sxpf.MakeString(class)),
 	)
 }
 

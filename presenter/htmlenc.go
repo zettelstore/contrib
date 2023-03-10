@@ -14,7 +14,6 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -275,22 +274,13 @@ func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, 
 		langAttr = sxpf.MakeList(sf.MustMake(sxhtml.NameSymAttr), sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(lang)))
 	}
 	if gen.hasMermaid {
-		attr := sxpf.MakeList(
-			sf.MustMake(sxhtml.NameSymAttr),
-			sxpf.Cons(sf.MustMake("type"), sxpf.MakeString("text/javascript")),
-		)
-		curr := bodyHtml.Tail().Last()
-		curr = curr.AppendBang(sxpf.MakeList(
+		curr := bodyHtml.Tail().Last().AppendBang(sxpf.MakeList(
 			sf.MustMake("script"),
-			attr,
+			getJSAttr(sf),
 			sxpf.MakeString("//"),
 			sxpf.MakeList(sf.MustMake(sxhtml.NameSymCDATA), sxpf.MakeString(mermaid)),
 		))
-		curr.AppendBang(sxpf.MakeList(
-			sf.MustMake("script"),
-			attr,
-			sxpf.MakeString("mermaid.initialize({startOnLoad:true});"),
-		))
+		curr.AppendBang(getJSScript("mermaid.initialize({startOnLoad:true});", sf))
 	}
 	zettelHtml := sxpf.MakeList(
 		sf.MustMake(sxhtml.NameSymDoctype),
@@ -299,6 +289,21 @@ func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, 
 	g := sxhtml.NewGenerator(sf, sxhtml.WithNewline)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	g.WriteHTML(w, zettelHtml)
+}
+
+func getJSScript(jsScript string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake("script"),
+		getJSAttr(sf),
+		sxpf.MakeList(sf.MustMake(sxhtml.NameSymNoEscape), sxpf.MakeString(jsScript)),
+	)
+}
+
+func getJSAttr(sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake(sxhtml.NameSymAttr),
+		sxpf.Cons(sf.MustMake("type"), sxpf.MakeString("text/javascript")),
+	)
 }
 
 func addClass(alist *sxpf.List, val string, sf sxpf.SymbolFactory) *sxpf.List {
@@ -313,14 +318,3 @@ func addClass(alist *sxpf.List, val string, sf sxpf.SymbolFactory) *sxpf.List {
 
 //go:embed mermaid/mermaid.min.js
 var mermaid string
-
-func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedImage, extZettelLinks bool) *htmlV {
-	v := &htmlV{}
-	return v
-}
-
-func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
-
-type htmlV struct {
-	curSlide *slideInfo
-}

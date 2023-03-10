@@ -104,7 +104,6 @@ func (si *slideInfo) LastChild() *slideInfo {
 }
 
 func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
-
 	var oldest, youngest *slideInfo
 	title := si.Slide.title
 	var content []sxpf.Object
@@ -132,7 +131,7 @@ func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
 			continue
 		}
 
-		nextTitle := levelPair.Tail().Tail().Tail().Tail()
+		nextTitle := levelPair.Tail().Tail().Tail().Tail().Head()
 		if nextTitle == nil {
 			content = append(content, bn)
 			continue
