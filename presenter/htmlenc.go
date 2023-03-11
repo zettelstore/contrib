@@ -47,10 +47,6 @@ func newGenerator(headingOffset int, sf sxpf.SymbolFactory, slides *slideSet, re
 	}
 	tr.SetRebinder(func(te *shtml.TransformEnv) {
 		te.Rebind(sexpr.NameSymRegionBlock, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
-			obj, err := prevFn.Call(env, args)
-			if err != nil {
-				return sxpf.Nil()
-			}
 			attr, ok := sxpf.GetList(args.Car())
 			if !ok {
 				return nil
@@ -59,19 +55,24 @@ func newGenerator(headingOffset int, sf sxpf.SymbolFactory, slides *slideSet, re
 			if val, found := a.Get(""); found {
 				switch val {
 				case "show":
-					log.Println("ARGS", a, args)
-					if ren := gen.ren; ren != nil && ren.Role() == SlideRoleShow {
-						classAttr := addClass(nil, "notes", sf)
-						result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
-						result.Tail().SetCdr(args.Tail().Car())
-						return result
+					if ren := gen.ren; ren != nil {
+						if ren.Role() == SlideRoleShow {
+							classAttr := addClass(nil, "notes", sf)
+							result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
+							result.Tail().SetCdr(args.Tail().Car())
+							return result
+						}
+						return sxpf.Nil()
 					}
 				case "handout":
-					if ren := gen.ren; ren != nil && ren.Role() == SlideRoleHandout {
-						classAttr := addClass(nil, "handout", sf)
-						result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
-						result.Tail().SetCdr(args.Tail().Car())
-						return result
+					if ren := gen.ren; ren != nil {
+						if ren.Role() == SlideRoleHandout {
+							classAttr := addClass(nil, "handout", sf)
+							result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
+							result.Tail().SetCdr(args.Tail().Car())
+							return result
+						}
+						return sxpf.Nil()
 					}
 				case "both":
 					if ren := gen.ren; ren != nil {
@@ -81,14 +82,19 @@ func newGenerator(headingOffset int, sf sxpf.SymbolFactory, slides *slideSet, re
 							classAttr = addClass(nil, "notes", sf)
 						case SlideRoleHandout:
 							classAttr = addClass(nil, "handout", sf)
+						default:
+							return sxpf.Nil()
 						}
-						if classAttr != nil {
-							result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
-							result.Tail().SetCdr(args.Tail().Car())
-							return result
-						}
+						result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
+						result.Tail().SetCdr(args.Tail().Car())
+						return result
 					}
 				}
+			}
+
+			obj, err := prevFn.Call(env, args)
+			if err != nil {
+				return sxpf.Nil()
 			}
 			return obj
 		})
@@ -310,7 +316,11 @@ func addClass(alist *sxpf.List, val string, sf sxpf.SymbolFactory) *sxpf.List {
 	symClass := sf.MustMake("class")
 	if p := alist.Assoc(symClass); p != nil {
 		if s, ok := sxpf.GetString(p.Cdr()); ok {
-			return alist.Cons(sxpf.Cons(symClass, sxpf.MakeString(s.String()+" "+val)))
+			classVal := s.String()
+			if strings.Contains(" "+classVal+" ", val) {
+				return alist
+			}
+			return alist.Cons(sxpf.Cons(symClass, sxpf.MakeString(classVal+" "+val)))
 		}
 	}
 	return alist.Cons(sxpf.Cons(symClass, sxpf.MakeString(val)))

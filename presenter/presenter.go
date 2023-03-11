@@ -514,14 +514,13 @@ func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.Symb
 		titleHtml = gen.Transform(title).Cons(sf.MustMake("h1"))
 	}
 	gen.SetUnique(fmt.Sprintf("%d:", si.Number))
-	content := si.Slide.content
-	return sxpf.MakeList(
-		sf.MustMake("section"),
-		attr,
-		titleHtml,
-		gen.Transform(content.Head()),
-		gen.Endnotes(),
-		sxpf.MakeList(
+	slideHtml := sxpf.MakeList(sf.MustMake("section"), attr, titleHtml)
+	curr := slideHtml.Last()
+	for content := si.Slide.content; content != nil; content = content.Tail() {
+		curr = curr.AppendBang(gen.Transform(content.Head()))
+	}
+	curr.AppendBang(gen.Endnotes()).
+		AppendBang(sxpf.MakeList(
 			sf.MustMake("p"),
 			sxpf.MakeList(
 				sf.MustMake("a"),
@@ -532,8 +531,8 @@ func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.Symb
 				),
 				sxpf.MakeString("\u266e"),
 			),
-		),
-	)
+		))
+	return slideHtml
 }
 
 func getJSFileScript(src string, sf sxpf.SymbolFactory) *sxpf.List {
