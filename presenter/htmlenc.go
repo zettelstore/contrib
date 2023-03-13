@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// Copyright (c) 2022 Detlef Stern
+// Copyright (c) 2022-present Detlef Stern
 //
 // This file is part of zettelstore slides application.
 //
@@ -11,60 +11,25 @@
 package main
 
 import (
-	"bytes"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
-	"io"
+	"log"
+	"net/http"
 	"strings"
 
+	"codeberg.org/t73fde/sxhtml"
 	"codeberg.org/t73fde/sxpf"
 	"zettelstore.de/c/api"
-	"zettelstore.de/c/html"
 	"zettelstore.de/c/sexpr"
+	"zettelstore.de/c/shtml"
 )
 
-func htmlNew(w io.Writer, s *slideSet, ren renderer, headingOffset int, embedImage, extZettelLinks bool) *htmlV {
-	env := html.NewEncEnvironment(w, headingOffset)
-	v := &htmlV{
-		env:            env,
-		s:              s,
-		ren:            ren,
-		embedImage:     embedImage,
-		extZettelLinks: extZettelLinks,
-		hasMermaid:     false,
-	}
-
-	env.Builtins.Set(sexpr.SymRegionBlock, v.makeEvaluateBlock(env.Builtins.MustLookupForm(sexpr.SymRegionBlock)))
-	env.Builtins.Set(sexpr.SymVerbatimEval, v.makeEvaluateVerbatimEval(env.Builtins.MustLookupForm(sexpr.SymVerbatimEval)))
-	env.Builtins.Set(sexpr.SymVerbatimComment, sxpf.NewBuiltin("verb-comm", true, 1, -1, formNothing))
-	env.Builtins.Set(sexpr.SymLinkZettel, sxpf.NewBuiltin("linkZ", true, 2, -1, v.generateLinkZettel))
-	env.Builtins.Set(sexpr.SymLinkExternal, sxpf.NewBuiltin("linkE", true, 2, -1, v.generateLinkExternal))
-	env.Builtins.Set(sexpr.SymEmbed, sxpf.NewBuiltin("embed", true, 3, -1, v.generateEmbed))
-	env.Builtins.Set(sexpr.SymLiteralComment, sxpf.NewBuiltin("lit-comm", true, 1, -1, formNothing))
-	return v
-}
-
-func formNothing(sxpf.Environment, *sxpf.Pair, int) (sxpf.Value, error) { return nil, nil }
-
-func (v *htmlV) SetUnique(s string)            { v.env.SetUnique(s) }
-func (v *htmlV) SetCurrentSlide(si *slideInfo) { v.curSlide = si }
-
-func evaluateInline(baseV *htmlV, in *sxpf.Pair) string {
-	if baseV == nil {
-		return html.EvaluateInline(nil, in, false, false)
-	}
-	return html.EvaluateInline(baseV.env, in, true, true)
-}
-func (v *htmlV) EvaluateBlock(bn *sxpf.Pair) { v.env.EvalPair(bn) }
-
-type htmlV struct {
-	env            *html.EncEnvironment
-	s              *slideSet
-	curSlide       *slideInfo
-	ren            renderer
-	embedImage     bool
-	extZettelLinks bool
-	hasMermaid     bool
+type htmlGenerator struct {
+	tr         *shtml.Transformer
+	s          *slideSet
+	curSlide   *slideInfo
+	hasMermaid bool
 }
 
 // embedImage, extZettelLinks
@@ -72,137 +37,283 @@ type htmlV struct {
 // true, false for handout
 // false, false for manual (?)
 
-func (v *htmlV) Write(b []byte) (int, error)       { return v.env.Write(b) }
-func (v *htmlV) WriteString(s string) (int, error) { return v.env.WriteString(s) }
-
-func (v *htmlV) WriteEndnotes() { v.env.WriteEndnotes() }
-
-func (v *htmlV) makeEvaluateBlock(oldForm sxpf.Form) sxpf.Form {
-	return sxpf.NewBuiltin(
-		"block", true, 2, -1,
-		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
-			a := sexpr.GetAttributes(v.env.GetPair(args))
+func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZettelLinks, embedImage bool) *htmlGenerator {
+	tr := shtml.NewTransformer(1, sf)
+	gen := htmlGenerator{
+		tr: tr,
+		s:  slides,
+	}
+	tr.SetRebinder(func(te *shtml.TransformEnv) {
+		te.Rebind(sexpr.NameSymRegionBlock, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
+			attr, ok := sxpf.GetList(args.Car())
+			if !ok {
+				return nil
+			}
+			a := sexpr.GetAttributes(attr)
 			if val, found := a.Get(""); found {
 				switch val {
 				case "show":
-					if ren := v.ren; ren == nil || ren.Role() != SlideRoleShow {
-						return nil, nil
+					if ren != nil {
+						if ren.Role() == SlideRoleShow {
+							classAttr := addClass(nil, "notes", sf)
+							result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
+							result.Tail().SetCdr(args.Tail().Car())
+							return result
+						}
+						return sxpf.Nil()
 					}
-					v.WriteString("<aside class=\"notes\">")
-					v.EvaluateBlock(v.env.GetPair(args.GetTail()))
-					v.WriteString("</aside>")
-					return nil, nil
 				case "handout":
-					if ren := v.ren; ren == nil || ren.Role() != SlideRoleHandout {
-						return nil, nil
+					if ren != nil {
+						if ren.Role() == SlideRoleHandout {
+							classAttr := addClass(nil, "handout", sf)
+							result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
+							result.Tail().SetCdr(args.Tail().Car())
+							return result
+						}
+						return sxpf.Nil()
 					}
-					v.WriteString("<aside class=\"handout\">")
-					v.EvaluateBlock(v.env.GetPair(args.GetTail()))
-					v.WriteString("</aside>")
-					return nil, nil
 				case "both":
-					ren := v.ren
-					if ren == nil {
-						return nil, nil
+					if ren != nil {
+						var classAttr *sxpf.List
+						switch ren.Role() {
+						case SlideRoleShow:
+							classAttr = addClass(nil, "notes", sf)
+						case SlideRoleHandout:
+							classAttr = addClass(nil, "handout", sf)
+						default:
+							return sxpf.Nil()
+						}
+						result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
+						result.Tail().SetCdr(args.Tail().Car())
+						return result
 					}
-					switch ren.Role() {
-					case SlideRoleShow:
-						v.WriteString("<aside class=\"notes\">")
-					case SlideRoleHandout:
-						v.WriteString("<aside class=\"handout\">")
-					default:
-						return nil, nil
-					}
-					v.EvaluateBlock(v.env.GetPair(args.GetTail()))
-					v.WriteString("</aside>")
-					return nil, nil
 				}
 			}
-			return oldForm.Call(env, args)
-		})
-}
 
-func (v *htmlV) makeEvaluateVerbatimEval(oldForm sxpf.Form) sxpf.Form {
-	return sxpf.NewBuiltin(
-		"verb-eval", true, 1, -1,
-		func(env sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
-			if hasMermaidAttribute(args) {
-				v.hasMermaid = true
-				v.WriteString("<div class=\"mermaid\">\n")
-				v.WriteString(v.env.GetString(args.GetTail()))
-				v.WriteString("</div>")
-				return nil, nil
+			obj, err := prevFn.Call(env, args)
+			if err != nil {
+				return sxpf.Nil()
 			}
-			return oldForm.Call(env, args)
+			return obj
 		})
+		te.Rebind(sexpr.NameSymVerbatimEval, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
+			attr, ok := sxpf.GetList(args.Car())
+			if !ok {
+				return nil
+			}
+			a := sexpr.GetAttributes(attr)
+			if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
+				gen.hasMermaid = true
+				if mmCode, ok2 := sxpf.GetString(args.Tail().Car()); ok2 {
+					return sxpf.MakeList(
+						sf.MustMake("div"),
+						sxpf.MakeList(
+							sf.MustMake(sxhtml.NameSymAttr),
+							sxpf.Cons(sf.MustMake("class"), sxpf.MakeString("mermaid")),
+						),
+						mmCode,
+					)
+				}
+			}
+			obj, err := prevFn.Call(env, args)
+			if err != nil {
+				return sxpf.Nil()
+			}
+			return obj
+		})
+		te.Rebind(sexpr.NameSymVerbatimComment, func(sxpf.Environment, *sxpf.List, sxpf.Callable) sxpf.Object { return sxpf.Nil() })
+		te.Rebind(sexpr.NameSymLinkZettel, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
+			obj, err := prevFn.Call(env, args)
+			if err != nil {
+				return sxpf.Nil()
+			}
+			lst, ok := sxpf.GetList(obj)
+			if !ok {
+				return obj
+			}
+			sym, ok := sxpf.GetSymbol(lst.Car())
+			if !ok || !sym.IsEqual(sf.MustMake("a")) {
+				return obj
+			}
+			attr, ok := sxpf.GetList(lst.Tail().Car())
+			if !ok {
+				return obj
+			}
+			avals := attr.Tail()
+			symHref := sf.MustMake("href")
+			p := avals.Assoc(symHref)
+			if p == nil {
+				return obj
+			}
+			refVal, ok := sxpf.GetString(p.Cdr())
+			if !ok {
+				return obj
+			}
+			zid, _, _ := strings.Cut(refVal.String(), "#")
+			if si := gen.curSlide.FindSlide(api.ZettelID(zid)); si != nil {
+				avals = avals.Cons(sxpf.Cons(symHref, sxpf.MakeString(fmt.Sprintf("#(%d)", si.Number))))
+			} else if extZettelLinks {
+				// TODO: make link absolute
+				attr.SetCdr(avals.Cons(sxpf.Cons(symHref, sxpf.MakeString("/"+zid))))
+				return sxpf.MakeList(sf.MustMake("span"), lst, sxpf.MakeString("\u2933"))
+			}
+			attr.SetCdr(avals)
+			return lst
+		})
+		te.Rebind(sexpr.NameSymLinkExternal, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
+			obj, err := prevFn.Call(env, args)
+			if err != nil {
+				return sxpf.Nil()
+			}
+			lst, ok := sxpf.GetList(obj)
+			if !ok {
+				return obj
+			}
+			attr, ok := sxpf.GetList(lst.Tail().Car())
+			if !ok {
+				return obj
+			}
+			avals := attr.Tail()
+			avals = addClass(avals, "external", sf)
+			avals = avals.Cons(sxpf.Cons(sf.MustMake("target"), sxpf.MakeString("_blank")))
+			avals = avals.Cons(sxpf.Cons(sf.MustMake("rel"), sxpf.MakeString("noopener noreferrer")))
+			attr.SetCdr(avals)
+			return sxpf.MakeList(sf.MustMake("span"), lst, sxpf.MakeString("\u279a"))
+		})
+		te.Rebind(sexpr.NameSymEmbed, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
+			obj, err := prevFn.Call(nil, args)
+			if err != nil {
+				return sxpf.Nil()
+			}
+			lst, ok := sxpf.GetList(obj)
+			if !ok {
+				return obj
+			}
+			attr, ok := sxpf.GetList(lst.Tail().Car())
+			if !ok {
+				return obj
+			}
+			avals := attr.Tail()
+			symSrc := sf.MustMake("src")
+			p := avals.Assoc(symSrc)
+			if p == nil {
+				return obj
+			}
+			zidVal, ok := sxpf.GetString(p.Cdr())
+			if !ok {
+				return obj
+			}
+			zid := api.ZettelID(zidVal)
+			syntax, ok := sxpf.GetString(args.Tail().Tail().Car())
+			if !ok {
+				return obj
+			}
+			if syntax == api.ValueSyntaxSVG {
+				if gen.s != nil && zid.IsValid() && gen.s.HasImage(zid) {
+					if svg, found := gen.s.GetImage(zid); found && svg.syntax == api.ValueSyntaxSVG {
+						log.Println("SVGG", svg)
+						return obj
+					}
+				}
+				return sxpf.MakeList(
+					sf.MustMake("figure"),
+					sxpf.MakeList(
+						sf.MustMake("embed"),
+						sxpf.MakeList(
+							sf.MustMake(sxhtml.NameSymAttr),
+							sxpf.Cons(sf.MustMake("type"), sxpf.MakeString("image/svg+xml")),
+							sxpf.Cons(symSrc, sxpf.MakeString("/"+string(zid)+".svg")),
+						),
+					),
+				)
+			}
+			if !zid.IsValid() {
+				return obj
+			}
+			var src string
+			if gen.s != nil && embedImage && gen.s.HasImage(zid) {
+				if img, found := gen.s.GetImage(zid); found {
+					var sb strings.Builder
+					sb.WriteString("data:image/")
+					sb.WriteString(img.syntax)
+					sb.WriteString(";base64,")
+					base64.NewEncoder(base64.StdEncoding, &sb).Write(img.data)
+					src = sb.String()
+				}
+			}
+			if src == "" {
+				src = "/" + string(zid) + ".content"
+			}
+			attr.SetCdr(avals.Cons(sxpf.Cons(symSrc, sxpf.MakeString(src))))
+			return obj
+		})
+		te.Rebind(sexpr.NameSymLiteralComment, func(sxpf.Environment, *sxpf.List, sxpf.Callable) sxpf.Object { return sxpf.Nil() })
+	})
+	return &gen
+}
+func (gen *htmlGenerator) SetUnique(s string)            { gen.tr.SetUnique(s) }
+func (gen *htmlGenerator) SetCurrentSlide(si *slideInfo) { gen.curSlide = si }
+
+func (gen *htmlGenerator) Transform(astLst *sxpf.List) *sxpf.List {
+	result, err := gen.tr.Transform(astLst)
+	if err != nil {
+		log.Println("ETRA", err)
+	}
+	return result
+}
+func (gen *htmlGenerator) TransformInline(astLst *sxpf.List, noFootnote, noLinks bool) *sxpf.List {
+	result, err := gen.tr.TransformInline(astLst, noFootnote, noLinks)
+	if err != nil {
+		log.Println("ETRI", err)
+	}
+	return result
 }
 
-func (v *htmlV) generateLinkZettel(senv sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
-	env := senv.(*html.EncEnvironment)
-	if a, refValue, ok := html.PrepareLink(env, args); ok {
-		zid, _, _ := strings.Cut(refValue, "#")
-		// TODO: check for fragment
-		if si := v.curSlide.FindSlide(api.ZettelID(zid)); si != nil {
-			// TODO: process and add fragment
-			a = a.Set("href", fmt.Sprintf("#(%d)", si.Number))
-			html.WriteLink(env, args, a, refValue, "")
-		} else if v.extZettelLinks {
-			// TODO: make link absolute
-			a = a.Set("href", "/"+zid)
-			html.WriteLink(env, args, a, refValue, "&#10547;")
-		} else {
-			html.WriteLink(env, args, a, refValue, "")
-		}
+func (gen *htmlGenerator) Endnotes() *sxpf.List { return gen.tr.Endnotes() }
+
+func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, headHtml, bodyHtml *sxpf.List) {
+	sf := gen.tr.SymbolFactory()
+	var langAttr *sxpf.List
+	if lang != "" {
+		langAttr = sxpf.MakeList(sf.MustMake(sxhtml.NameSymAttr), sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(lang)))
 	}
-	return nil, nil
+	if gen.hasMermaid {
+		curr := bodyHtml.Tail().Last().AppendBang(sxpf.MakeList(
+			sf.MustMake("script"),
+			sxpf.MakeString("//"),
+			sxpf.MakeList(sf.MustMake(sxhtml.NameSymCDATA), sxpf.MakeString(mermaid)),
+		))
+		curr.AppendBang(getJSScript("mermaid.initialize({startOnLoad:true});", sf))
+	}
+	zettelHtml := sxpf.MakeList(
+		sf.MustMake(sxhtml.NameSymDoctype),
+		sxpf.MakeList(sf.MustMake("html"), langAttr, headHtml, bodyHtml),
+	)
+	g := sxhtml.NewGenerator(sf, sxhtml.WithNewline)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	g.WriteHTML(w, zettelHtml)
 }
 
-func (v *htmlV) generateLinkExternal(senv sxpf.Environment, args *sxpf.Pair, _ int) (sxpf.Value, error) {
-	env := senv.(*html.EncEnvironment)
-	if a, refValue, ok := html.PrepareLink(env, args); ok {
-		a = a.Set("href", refValue).
-			AddClass("external").
-			Set("target", "_blank").
-			Set("rel", "noopener noreferrer")
-		html.WriteLink(env, args, a, refValue, "&#10138;")
-	}
-	return nil, nil
+func getJSScript(jsScript string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake("script"),
+		sxpf.MakeList(sf.MustMake(sxhtml.NameSymNoEscape), sxpf.MakeString(jsScript)),
+	)
 }
 
-func (v *htmlV) visitEmbedSVG(src string) {
-	zid := api.ZettelID(src)
-	if v.s != nil && zid.IsValid() && v.s.HasImage(zid) {
-		if svg, found := v.s.GetImage(zid); found && svg.syntax == api.ValueSyntaxSVG {
-			v.Write(svg.data)
-			return
+func addClass(alist *sxpf.List, val string, sf sxpf.SymbolFactory) *sxpf.List {
+	symClass := sf.MustMake("class")
+	if p := alist.Assoc(symClass); p != nil {
+		if s, ok := sxpf.GetString(p.Cdr()); ok {
+			classVal := s.String()
+			if strings.Contains(" "+classVal+" ", val) {
+				return alist
+			}
+			return alist.Cons(sxpf.Cons(symClass, sxpf.MakeString(classVal+" "+val)))
 		}
 	}
-	fmt.Fprintf(v, "<figure><embed type=\"image/svg+xml\" src=\"%s\" /></figure>\n", "/"+src+".svg")
+	return alist.Cons(sxpf.Cons(symClass, sxpf.MakeString(val)))
 }
-func (v *htmlV) generateEmbed(senv sxpf.Environment, args *sxpf.Pair, arity int) (sxpf.Value, error) {
-	env := senv.(*html.EncEnvironment)
-	ref := env.GetPair(args.GetTail())
-	src := env.GetString(ref.GetTail())
-	if syntax := env.GetString(args.GetTail().GetTail()); syntax == api.ValueSyntaxSVG {
-		// TODO
-		v.visitEmbedSVG(src)
-		return nil, nil
-	}
-	zid := api.ZettelID(src)
-	if v.s != nil && v.embedImage && zid.IsValid() && v.s.HasImage(zid) {
-		if img, found := v.s.GetImage(zid); found {
-			var buf bytes.Buffer
-			buf.WriteString("data:image/")
-			buf.WriteString(img.syntax)
-			buf.WriteString(";base64,")
-			base64.NewEncoder(base64.StdEncoding, &buf).Write(img.data)
-			env.WriteImageWithSource(args, buf.String())
-			return nil, nil
-		}
-	}
-	if zid.IsValid() {
-		src = "/" + src + ".content"
-	}
-	env.WriteImageWithSource(args, src)
-	return nil, nil
-}
+
+//go:embed mermaid/mermaid.min.js
+var mermaid string

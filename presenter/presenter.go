@@ -17,7 +17,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"log"
 	"net/http"
@@ -25,6 +24,7 @@ import (
 	"os"
 	"strings"
 
+	"codeberg.org/t73fde/sxhtml"
 	"codeberg.org/t73fde/sxpf"
 	"golang.org/x/term"
 
@@ -113,24 +113,24 @@ func getClient(ctx context.Context, base string) (*client.Client, error) {
 	if withAuth {
 		if username == "" {
 			io.WriteString(os.Stderr, "Username: ")
-			_, err := fmt.Fscanln(os.Stdin, &username)
-			if err != nil {
-				return nil, err
+			_, errUser := fmt.Fscanln(os.Stdin, &username)
+			if errUser != nil {
+				return nil, errUser
 			}
 		}
 		if password == "" {
 			io.WriteString(os.Stderr, "Password: ")
-			pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+			pw, errPw := term.ReadPassword(int(os.Stdin.Fd()))
 			io.WriteString(os.Stderr, "\n")
-			if err != nil {
-				return nil, err
+			if errPw != nil {
+				return nil, errPw
 			}
 			password = string(pw)
 		}
 		c.SetAuth(username, password)
-		err := c.Authenticate(ctx)
-		if err != nil {
-			return nil, err
+		errAuth := c.Authenticate(ctx)
+		if errAuth != nil {
+			return nil, errAuth
 		}
 	}
 
@@ -144,19 +144,25 @@ const (
 
 type slidesConfig struct {
 	c            *client.Client
+	astSF        sxpf.SymbolFactory
+	zs           *sexpr.ZettelSymbols
 	slideSetRole string
 	author       string
 }
 
 func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
-	result := slidesConfig{
-		c:            c,
-		slideSetRole: DefaultSlideSetRole,
-	}
 	m, err := c.GetMeta(ctx, zidConfig)
 	if err != nil {
 		return slidesConfig{}, err
 	}
+	astSF := sxpf.MakeMappedFactory()
+	result := slidesConfig{
+		c:            c,
+		astSF:        astSF,
+		zs:           &sexpr.ZettelSymbols{},
+		slideSetRole: DefaultSlideSetRole,
+	}
+	result.zs.InitializeZettelSymbols(astSF)
 	if ssr, ok := m[KeySlideSetRole]; ok {
 		result.slideSetRole = ssr
 	}
@@ -185,12 +191,12 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 					w.Write(content)
 				}
 			default:
-				processZettel(w, r, cfg.c, zid, cfg.slideSetRole)
+				processZettel(w, r, cfg, zid)
 			}
 			return
 		}
 		if len(path) == 2 && ' ' < path[1] && path[1] <= 'z' {
-			processList(w, r, cfg.c)
+			processList(w, r, cfg.c, cfg.astSF, cfg.zs)
 			return
 		}
 		log.Println("NOTF", path)
@@ -245,9 +251,9 @@ func reportRetrieveError(w http.ResponseWriter, zid api.ZettelID, err error, obj
 	}
 }
 
-func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid api.ZettelID, slidesSetRole string) {
+func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID) {
 	ctx := r.Context()
-	sxZettel, err := c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
+	sxZettel, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, cfg.astSF)
 	if err != nil {
 		reportRetrieveError(w, zid, err, "zettel")
 		return
@@ -255,90 +261,140 @@ func processZettel(w http.ResponseWriter, r *http.Request, c *client.Client, zid
 	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
 
 	role := sxMeta.GetString(api.KeyRole)
-	if role == slidesSetRole {
-		if slides := processSlideTOC(ctx, c, zid, sxMeta); slides != nil {
+	if role == cfg.slideSetRole {
+		if slides := processSlideTOC(ctx, cfg.c, zid, sxMeta, cfg.zs, cfg.astSF); slides != nil {
 			renderSlideTOC(w, slides)
 			return
 		}
 	}
+	title := getSlideTitleZid(sxMeta, zid, cfg.zs)
 
-	title := getSlideTitleZid(sxMeta, zid)
-	writeHTMLHeader(w, sxMeta.GetString(api.KeyLang), "")
-	fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
-	writeHTMLBody(w)
-	he := htmlNew(w, nil, nil, 1, false, true)
-	fmt.Fprintf(w, "<h1>%s</h1>\n", evaluateInline(he, title))
-	hasHeader := false
+	sf := sxpf.MakeMappedFactory()
+	gen := newGenerator(sf, nil, nil, true, false)
+
+	headHtml := getHTMLHead("", sf)
+	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
+
+	headerHtml := sxpf.MakeList(
+		sf.MustMake("header"),
+		gen.Transform(title).Cons(sf.MustMake("h1")),
+		getURLHtml(sxMeta, sf),
+	)
+	articleHtml := sxpf.MakeList(sf.MustMake("article"))
+	curr := articleHtml
+	for elem := gen.Transform(sxContent); elem != nil; elem = elem.Tail() {
+		curr = curr.AppendBang(elem.Car())
+	}
+	footerHtml := sxpf.MakeList(
+		sf.MustMake("footer"),
+		gen.Endnotes(),
+		sxpf.MakeList(
+			sf.MustMake("p"),
+			sxpf.MakeList(
+				sf.MustMake("a"),
+				sxpf.MakeList(
+					sf.MustMake(sxhtml.NameSymAttr),
+					sxpf.Cons(sf.MustMake("href"), sxpf.MakeString(cfg.c.Base()+"h/"+string(zid))),
+				),
+				sxpf.MakeString("\u266e"),
+			),
+		),
+	)
+	bodyHtml := sxpf.MakeList(sf.MustMake("body"), headerHtml, articleHtml, footerHtml)
+
+	gen.writeHTMLDocument(w, sxMeta.GetString(api.KeyLang), headHtml, bodyHtml)
+}
+
+func getURLHtml(sxMeta sexpr.Meta, sf sxpf.SymbolFactory) *sxpf.List {
+	var lst *sxpf.List
 	for k, v := range sxMeta {
 		if v.Type != api.MetaURL {
 			continue
 		}
-		strVal := sexpr.MakeString(v.Value)
-		if strVal == "" {
+		s, ok := v.Value.(sxpf.String)
+		if !ok {
 			continue
 		}
-		if !hasHeader {
-			io.WriteString(w, "<ul class=\"header\">\n")
-			hasHeader = true
-		}
-		fmt.Fprintf(w, "<li>%s: <a href=\"%s\" target=\"_blank\">%s</a>&#10138;</li>", html.EscapeString(k), strVal, html.EscapeString(strVal))
+		li := sxpf.MakeList(
+			sf.MustMake("li"),
+			sxpf.MakeString(k),
+			sxpf.MakeString(": "),
+			sxpf.MakeList(
+				sf.MustMake("a"),
+				sxpf.MakeList(
+					sf.MustMake(sxhtml.NameSymAttr),
+					sxpf.Cons(sf.MustMake("href"), s),
+					sxpf.Cons(sf.MustMake("target"), sxpf.MakeString("_blank")),
+				),
+				s,
+			),
+			sxpf.MakeString("\u279a"),
+		)
+		lst = lst.Cons(li)
 	}
-	if hasHeader {
-		io.WriteString(w, "</ul>\n")
+	if lst != nil {
+		return lst.Cons(sf.MustMake("ul"))
 	}
-
-	he.EvaluateBlock(sxContent)
-	he.WriteEndnotes()
-	fmt.Fprintf(w, "<p><a href=\"%sh/%s\">&#9838;</a></p>\n", c.Base(), zid)
-	writeHTMLFooter(w, he.hasMermaid)
+	return nil
 }
 
-func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sxMeta sexpr.Meta) *slideSet {
+func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols, astSF sxpf.SymbolFactory) *slideSet {
 	o, err := c.GetZettelOrder(ctx, zid)
 	if err != nil {
 		return nil
 	}
-	slides := newSlideSetMeta(zid, sxMeta)
+	slides := newSlideSetMeta(zid, sxMeta, zs)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return c.GetZettel(ctx, zid, api.PartContent) }
-	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
-		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
+	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
+		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, astSF)
 	}
-	setupSlideSet(slides, o.List, getZettel, sGetZettel)
+	setupSlideSet(slides, o.List, getZettel, sGetZettel, zs)
 	return slides
 }
 
 func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
-	offset, title, htmlTitle, subtitle := 1, slides.Title(), "", slides.Subtitle()
-	if !title.IsEmpty() {
+	showTitle := slides.Title()
+	showSubtitle := slides.Subtitle()
+	offset := 1
+	if showTitle != nil {
 		offset++
-		htmlTitle = evaluateInline(nil, title)
 	}
 
-	writeHTMLHeader(w, slides.Lang(), "")
-	writeTitle(w, title)
-	writeHTMLBody(w)
-	if !title.IsEmpty() {
-		fmt.Fprintf(w, "<h1>%s</h1>\n", htmlTitle)
-		if !subtitle.IsEmpty() {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", evaluateInline(nil, subtitle))
-		}
+	sf := sxpf.MakeMappedFactory()
+	gen := newGenerator(sf, nil, nil, false, false)
+
+	headHtml := getHTMLHead("", sf)
+	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(showTitle))))
+
+	headerHtml := sxpf.MakeList(
+		sf.MustMake("header"),
+		gen.Transform(showTitle).Cons(sf.MustMake("h1")),
+	)
+	if showSubtitle != nil {
+		headerHtml.Last().AppendBang(gen.Transform(showSubtitle).Cons(sf.MustMake("h2")))
 	}
-	io.WriteString(w, "<ol>\n")
-	if !title.IsEmpty() {
-		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(1)\">%s</a></li>\n", slides.zid, htmlTitle)
-	}
+	lstSlide := sxpf.MakeList(sf.MustMake("ol"))
+	curr := lstSlide
+	curr = curr.AppendBang(sxpf.MakeList(sf.MustMake("li"), getSimpleLink("/"+string(slides.zid)+".slide#(1)", gen.Transform(showTitle), sf)))
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
-		var slideTitle string
-		if t := si.Slide.title; !t.IsEmpty() {
-			slideTitle = evaluateInline(nil, t)
-		} else {
-			slideTitle = string(si.Slide.zid)
-		}
-		fmt.Fprintf(w, "<li><a href=\"/%s.slide#(%d)\">%s</a></li>\n", slides.zid, si.Number, slideTitle)
+		slideTitle := gen.TransformInline(si.Slide.title, true, true)
+		curr = curr.AppendBang(sxpf.MakeList(
+			sf.MustMake("li"),
+			getSimpleLink(fmt.Sprintf("/%s.slide#(%d)", slides.zid, si.Number), slideTitle, sf)))
 	}
-	io.WriteString(w, "</ol>\n")
-	fmt.Fprintf(w, "<p><a href=\"/%s.reveal\">Reveal</a>, <a href=\"/%s.html\">Handout</a>, <a href=\"\">Zettel</a></p>\n", slides.zid, slides.zid)
-	writeHTMLFooter(w, false)
+	bodyHtml := sxpf.MakeList(
+		sf.MustMake("body"),
+		headerHtml,
+		lstSlide,
+	)
+	bodyHtml.Last().AppendBang(sxpf.MakeList(
+		sf.MustMake("p"),
+		getSimpleLink("/"+string(slides.zid)+".reveal", sxpf.MakeList(sxpf.MakeString("Reveal")), sf),
+		sxpf.MakeString(", "),
+		getSimpleLink("/"+string(slides.zid)+".html", sxpf.MakeList(sxpf.MakeString("Handout")), sf),
+	))
+
+	gen.writeHTMLDocument(w, slides.Lang(), headHtml, bodyHtml)
 }
 
 func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID, ren renderer) {
@@ -348,133 +404,159 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		reportRetrieveError(w, zid, err, "zettel")
 		return
 	}
-	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartMeta)
+	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartMeta, cfg.astSF)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 		return
 	}
-	slides := newSlideSet(zid, sexpr.MakeMeta(sMeta))
+	slides := newSlideSet(zid, sexpr.MakeMeta(sMeta), cfg.zs)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return cfg.c.GetZettel(ctx, zid, api.PartContent) }
-	sGetZettel := func(zid api.ZettelID) (sxpf.Value, error) {
-		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel)
+	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
+		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, cfg.astSF)
 	}
-	setupSlideSet(slides, o.List, getZettel, sGetZettel)
+	setupSlideSet(slides, o.List, getZettel, sGetZettel, cfg.zs)
 	ren.Prepare(ctx, cfg)
-	ren.Render(w, slides, slides.Author(cfg))
+	ren.Render(w, slides, cfg.astSF, slides.Author(cfg))
 }
 
 type renderer interface {
 	Role() string
 	Prepare(context.Context, *slidesConfig)
-	Render(w http.ResponseWriter, slides *slideSet, author string)
+	Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string)
 }
 
 type revealRenderer struct {
-	userCSS []byte
+	userCSS string
 }
 
 func (*revealRenderer) Role() string { return SlideRoleShow }
 func (rr *revealRenderer) Prepare(ctx context.Context, cfg *slidesConfig) {
-	if data, err := cfg.c.GetZettel(ctx, zidSlideCSS, api.PartContent); err == nil {
-		rr.userCSS = data
+	if data, err := cfg.c.GetZettel(ctx, zidSlideCSS, api.PartContent); err == nil && len(data) > 0 {
+		rr.userCSS = string(data)
 	}
 }
-func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
-	lang := slides.Lang()
-	writeHTMLHeader(w, lang, ".reveal ")
-	if len(rr.userCSS) > 0 {
-		io.WriteString(w, `<style type="text/css">`)
-		w.Write(rr.userCSS)
-		io.WriteString(w, "</style>\n")
-	}
+func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
+	sf := sxpf.MakeMappedFactory()
+	gen := newGenerator(sf, slides, rr, true, false)
 
 	title := slides.Title()
-	writeTitle(w, title)
-	io.WriteString(w, `<link rel="stylesheet" href="revealjs/reveal.css">
-<link rel="stylesheet" href="revealjs/theme/white.css">
-<link rel="stylesheet" href="revealjs/plugin/highlight/default.css">
-`)
-	writeHTMLBody(w)
 
-	io.WriteString(w, "<div class=\"reveal\">\n<div class=\"slides\">\n")
+	headHtml := getHTMLHead(rr.userCSS, sf)
+	headHtml.Last().AppendBang(getHeadLink("stylesheet", "revealjs/reveal.css", sf)).
+		AppendBang(getHeadLink("stylesheet", "revealjs/theme/white.css", sf)).
+		AppendBang(getHeadLink("stylesheet", "revealjs/plugin/highlight/default.css", sf)).
+		AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
+	lang := slides.Lang()
+
+	slidesHtml := sxpf.MakeList(sf.MustMake("div"), getClassAttr("slides", sf))
+	revealHtml := sxpf.MakeList(sf.MustMake("div"), getClassAttr("reveal", sf), slidesHtml)
 	offset := 1
-	if !title.IsEmpty() {
+	if title != nil {
 		offset++
-		fmt.Fprintf(w, "<section>\n<h1 class=\"title\">%s</h1>", evaluateInline(nil, title))
-		if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
-			fmt.Fprintf(w, "\n<p class=\"subtitle\">%s</p>", evaluateInline(nil, subtitle))
+		hgroupHtml := sxpf.MakeList(
+			sf.MustMake("hgroup"),
+			gen.TransformInline(title, false, false).Cons(getClassAttr("title", sf)).Cons(sf.MustMake("h1")),
+		)
+		curr := hgroupHtml.Last()
+		if subtitle := slides.Subtitle(); subtitle != nil {
+			curr = curr.AppendBang(gen.TransformInline(subtitle, false, false).Cons(getClassAttr("subtitle", sf)).Cons(sf.MustMake("h2")))
 		}
 		if author != "" {
-			fmt.Fprintf(w, "\n<p class=\"author\">%s</p>", html.EscapeString(author))
+			curr.AppendBang(sxpf.MakeList(
+				sf.MustMake("p"),
+				getClassAttr("author", sf),
+				sxpf.MakeString(author),
+			))
 		}
-		io.WriteString(w, "\n</section>\n")
+		slidesHtml = slidesHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("section"), hgroupHtml))
 	}
-	he := htmlNew(w, slides, rr, 1, false, true)
+
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
-		he.SetCurrentSlide(si)
+		gen.SetCurrentSlide(si)
 		main := si.Child()
-		sub := main.Next()
-		if sub != nil {
-			io.WriteString(w, "<section>\n")
-		}
-		fmt.Fprintf(w, `<section id="(%d)"`, main.SlideNo)
-		if slLang := main.Slide.lang; slLang != "" && slLang != lang {
-			fmt.Fprintf(w, ` lang="%s"`, slLang)
-		}
-		io.WriteString(w, ">\n")
-		renderRevealSlide(w, he, main)
-		io.WriteString(w, "</section>\n")
-
-		if sub != nil {
-			for {
-				fmt.Fprintf(w, "<section id=\"(%d)\">\n", sub.SlideNo)
-				renderRevealSlide(w, he, sub)
-				io.WriteString(w, "</section>\n")
-				sub = sub.Next()
-				if sub == nil {
-					break
-				}
+		rSlideHtml := getRevealSlide(gen, main, lang, sf)
+		if sub := main.Next(); sub != nil {
+			rSlideHtml = sxpf.MakeList(sf.MustMake("section"), rSlideHtml)
+			curr := rSlideHtml.Last()
+			for ; sub != nil; sub = sub.Next() {
+				curr = curr.AppendBang(getRevealSlide(gen, sub, main.Slide.lang, sf))
 			}
-			io.WriteString(w, "</section>\n")
 		}
+		slidesHtml = slidesHtml.AppendBang(rSlideHtml)
 	}
-	io.WriteString(w, `</div>
-</div>
-<script src="revealjs/plugin/highlight/highlight.js"></script>
-<script src="revealjs/plugin/notes/notes.js"></script>
-<script src="revealjs/reveal.js"></script>
-<script>Reveal.initialize({width: 1920, height: 1024, center: true,
-slideNumber: "c", hash: true,
-plugins: [ RevealHighlight, RevealNotes ]});</script>
-`)
-	writeHTMLFooter(w, slides.hasMermaid)
+
+	bodyHtml := sxpf.MakeList(
+		sf.MustMake("body"),
+		revealHtml,
+		getJSFileScript("revealjs/plugin/highlight/highlight.js", sf),
+		getJSFileScript("revealjs/plugin/notes/notes.js", sf),
+		getJSFileScript("revealjs/reveal.js", sf),
+		getJSScript(`Reveal.initialize({width: 1920, height: 1024, center: true, slideNumber: "c", hash: true, plugins: [ RevealHighlight, RevealNotes ]});`, sf),
+	)
+
+	gen.writeHTMLDocument(w, lang, headHtml, bodyHtml)
 }
 
-func writeTitle(w http.ResponseWriter, title *sxpf.Pair) {
-	if !title.IsEmpty() {
-		fmt.Fprintf(w, "<title>%s</title>\n", text.EvaluateInlineString(title))
+func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.SymbolFactory) *sxpf.List {
+	symAttr := sf.MustMake(sxhtml.NameSymAttr)
+	attr := sxpf.MakeList(
+		symAttr,
+		sxpf.Cons(sf.MustMake("id"), sxpf.MakeString(fmt.Sprintf("(%d)", si.SlideNo))),
+	)
+	if slLang := si.Slide.lang; slLang != "" && slLang != lang {
+		attr.Last().AppendBang(sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(slLang)))
 	}
+
+	var titleHtml *sxpf.List
+	if title := si.Slide.title; title != nil {
+		titleHtml = gen.Transform(title).Cons(sf.MustMake("h1"))
+	}
+	gen.SetUnique(fmt.Sprintf("%d:", si.Number))
+	slideHtml := sxpf.MakeList(sf.MustMake("section"), attr, titleHtml)
+	curr := slideHtml.Last()
+	for content := si.Slide.content; content != nil; content = content.Tail() {
+		curr = curr.AppendBang(gen.Transform(content.Head()))
+	}
+	curr.AppendBang(gen.Endnotes()).
+		AppendBang(sxpf.MakeList(
+			sf.MustMake("p"),
+			sxpf.MakeList(
+				sf.MustMake("a"),
+				sxpf.MakeList(
+					symAttr,
+					sxpf.Cons(sf.MustMake("href"), sxpf.MakeString(string(si.Slide.zid))),
+					sxpf.Cons(sf.MustMake("target"), sxpf.MakeString("_blank")),
+				),
+				sxpf.MakeString("\u266e"),
+			),
+		))
+	return slideHtml
 }
 
-func renderRevealSlide(w http.ResponseWriter, he *htmlV, si *slideInfo) {
-	if title := si.Slide.title; !title.IsEmpty() {
-		fmt.Fprintf(w, "<h1>%s</h1>", evaluateInline(he, title))
-	}
-	he.SetUnique(fmt.Sprintf("%d:", si.Number))
-	he.EvaluateBlock(si.Slide.content)
-	he.WriteEndnotes()
-	fmt.Fprintf(w, "\n<p><a href=\"%s\" target=\"_blank\">&#9838;</a></p>\n", si.Slide.zid)
+func getJSFileScript(src string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake("script"),
+		sxpf.MakeList(
+			sf.MustMake(sxhtml.NameSymAttr),
+			sxpf.Cons(sf.MustMake("src"), sxpf.MakeString(src)),
+		),
+	)
 }
 
 type handoutRenderer struct{}
 
 func (*handoutRenderer) Role() string                           { return SlideRoleHandout }
 func (*handoutRenderer) Prepare(context.Context, *slidesConfig) {}
-func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
-	lang := slides.Lang()
-	writeHTMLHeader(w, lang, "")
-	io.WriteString(w, `<style type="text/css">
-blockquote {
+func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
+	sf := sxpf.MakeMappedFactory()
+	symAttr := sf.MustMake(sxhtml.NameSymAttr)
+	gen := newGenerator(sf, slides, hr, false, true)
+
+	handoutTitle := slides.Title()
+	copyright := slides.Copyright()
+	license := slides.License()
+
+	const extraCss = `blockquote {
   border-left: 0.5rem solid lightgray;
   padding-left: 1rem;
   margin-left: 1rem;
@@ -483,88 +565,98 @@ blockquote {
 }
 blockquote p { margin-bottom: .5rem }
 blockquote cite { font-style: normal }
-</style>
-`)
-
-	title := slides.Title()
-	writeTitle(w, title)
-	writeMeta(w, "author", author)
-	copyright := slides.Copyright()
-	writeMeta(w, "copyright", copyright)
-	license := slides.License()
-	writeMeta(w, "license", license)
-	writeHTMLBody(w)
+aside.handout { border: 0.2rem solid lightgray }
+`
+	headHtml := getHTMLHead(extraCss, sf)
+	headHtml.Last().AppendBang(getSimpleMeta("author", author, sf)).
+		AppendBang(getSimpleMeta("copyright", copyright, sf)).
+		AppendBang(getSimpleMeta("license", license, sf)).
+		AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(handoutTitle))))
 
 	offset := 1
-	if !title.IsEmpty() {
+	lang := slides.Lang()
+	headerHtml := sxpf.MakeList(sf.MustMake("header"))
+	if handoutTitle != nil {
 		offset++
-		fmt.Fprintf(w, "<h1 id=\"(1)\">%s</h1>\n", evaluateInline(nil, title))
-		if subtitle := slides.Subtitle(); !subtitle.IsEmpty() {
-			fmt.Fprintf(w, "<h2>%s</h2>\n", evaluateInline(nil, subtitle))
+		curr := sxpf.MakeList(sf.MustMake("hgroup"))
+		headerHtml.Last().AppendBang(curr)
+		curr = curr.AppendBang(
+			gen.Transform(handoutTitle).
+				Cons(sxpf.MakeList(symAttr, sxpf.Cons(sf.MustMake("id"), sxpf.MakeString("(1)")))).
+				Cons(sf.MustMake("h1")))
+		if handoutSubtitle := slides.Subtitle(); handoutSubtitle != nil {
+			curr = curr.AppendBang(gen.Transform(handoutSubtitle).Cons(sf.MustMake("h2")))
 		}
-		writeEscapedString(w, author)
-		writeEscapedString(w, copyright)
-		writeEscapedString(w, license)
+		curr.AppendBang(sxpf.MakeList(sf.MustMake("p"), sxpf.MakeString(author))).
+			AppendBang(sxpf.MakeList(sf.MustMake("p"), sxpf.MakeString(copyright))).
+			AppendBang(sxpf.MakeList(sf.MustMake("p"), sxpf.MakeString(license)))
 	}
-	he := htmlNew(w, slides, hr, 1, true, false)
+	articleHtml := sxpf.MakeList(sf.MustMake("article"))
+	curr := articleHtml
 	for si := slides.Slides(SlideRoleHandout, offset); si != nil; si = si.Next() {
-		he.SetCurrentSlide(si)
+		gen.SetCurrentSlide(si)
+		gen.SetUnique(fmt.Sprintf("%d:", si.Number))
+		idAttr := sxpf.MakeList(
+			symAttr,
+			sxpf.Cons(sf.MustMake("id"), sxpf.MakeString(fmt.Sprintf("(%d)", si.Number))),
+		)
 		sl := si.Slide
-		if title := sl.title; !title.IsEmpty() {
-			fmt.Fprintf(w, "<h1 id=\"(%d)\"> %s%s</h1>\n", si.Number, evaluateInline(he, title), slideNoRange(si))
+		if slideTitle := sl.title; slideTitle != nil {
+			h1 := sxpf.MakeList(sf.MustMake("h1"), idAttr)
+			h1.Last().ExtendBang(gen.Transform(slideTitle)).AppendBang(getSlideNoRange(si, sf))
+			curr = curr.AppendBang(h1)
 		} else {
-			fmt.Fprintf(w, "<a id=\"(%d)\"></a>", si.Number)
+			curr = curr.AppendBang(sxpf.MakeList(sf.MustMake("a"), idAttr))
 		}
-		slLang := sl.lang
-		if slLang != "" && slLang != lang {
-			fmt.Fprintf(w, `<div lang="%s">`, slLang)
-		}
-
-		he.SetUnique(fmt.Sprintf("%d:", si.Number))
-		he.EvaluateBlock(sl.content)
-		if slLang != "" && slLang != lang {
-			io.WriteString(w, "</div>")
+		content := gen.Transform(sl.content)
+		if slLang := sl.lang; slLang != "" && slLang != lang {
+			content = content.Cons(sxpf.MakeList(symAttr, sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(slLang)))).Cons(sf.MustMake("div"))
+			curr = curr.AppendBang(content)
+		} else {
+			curr = curr.ExtendBang(content)
 		}
 	}
-	he.WriteEndnotes()
-	writeHTMLFooter(w, slides.hasMermaid)
+	footerHtml := sxpf.MakeList(sf.MustMake("footer"), gen.Endnotes())
+	bodyHtml := sxpf.MakeList(sf.MustMake("body"), headerHtml, articleHtml, footerHtml)
+	gen.writeHTMLDocument(w, lang, headHtml, bodyHtml)
 }
 
-func writeEscapedString(w http.ResponseWriter, s string) {
-	if s != "" {
-		fmt.Fprintf(w, "<p>%s</p>\n", html.EscapeString(s))
-	}
-}
-
-func slideNoRange(si *slideInfo) string {
+func getSlideNoRange(si *slideInfo, sf sxpf.SymbolFactory) *sxpf.List {
 	if fromSlideNo := si.SlideNo; fromSlideNo > 0 {
-		toSlideNo := si.LastChild().SlideNo
-		if fromSlideNo >= toSlideNo {
-			return fmt.Sprintf(" <small>(S.%d)</small>", fromSlideNo)
+		lstSlNo := sxpf.MakeList(sf.MustMake(sxhtml.NameSymNoEscape))
+		if toSlideNo := si.LastChild().SlideNo; fromSlideNo < toSlideNo {
+			lstSlNo.AppendBang(sxpf.MakeString(fmt.Sprintf(" (S.%d&ndash;%d)", fromSlideNo, toSlideNo)))
+		} else {
+			lstSlNo.AppendBang(sxpf.MakeString(fmt.Sprintf(" (S.%d)", fromSlideNo)))
 		}
-		return fmt.Sprintf(" <small>(S.%d&ndash;%d)</small>", fromSlideNo, toSlideNo)
+		return sxpf.MakeList(sf.MustMake("small"), lstSlNo)
 	}
-	return ""
+	return nil
 }
 
-func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, sGetZettel sGetZettelFunc) {
+func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, sGetZettel sGetZettelFunc, zs *sexpr.ZettelSymbols) {
 	for _, sl := range l {
-		slides.AddSlide(sl.ID, sGetZettel)
+		slides.AddSlide(sl.ID, sGetZettel, zs)
 	}
-	slides.Completion(getZettel, sGetZettel)
+	slides.Completion(getZettel, sGetZettel, zs)
 }
 
-func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
+func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF sxpf.SymbolFactory, zs *sexpr.ZettelSymbols) {
 	ctx := r.Context()
 	_, human, zl, err := c.ListZettelJSON(ctx, strings.Join(r.URL.Query()[api.QueryKeyQuery], " "))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error retrieving zettel list %s: %s\n", r.URL.Query(), err), http.StatusBadRequest)
 		return
 	}
-	titles := make([]string, len(zl))
+	log.Println("LIST", human, zl)
+
+	sf := sxpf.MakeMappedFactory()
+	gen := newGenerator(sf, nil, nil, false, false)
+
+	titles := make([]*sxpf.List, len(zl))
 	for i, jm := range zl {
-		if sMeta, err := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta); err == nil {
-			titles[i] = evaluateInline(nil, getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID))
+		if sMeta, err2 := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta, astSF); err2 == nil {
+			titles[i] = gen.TransformInline(getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID, zs), true, true)
 		}
 	}
 
@@ -576,37 +668,38 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client) {
 		title = "Selected zettel"
 		human = "Search: " + human
 	}
-	writeHTMLHeader(w, "", "")
-	fmt.Fprintf(w, "<title>%s</title>\n", title)
-	writeHTMLBody(w)
-	fmt.Fprintf(w, "<h1>%s</h1>\n", html.EscapeString(human))
-	io.WriteString(w, "<ul>\n")
+
+	headHtml := getHTMLHead("", sf)
+	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(title)))
+
+	ul := sxpf.MakeList(sf.MustMake("ul"))
+	curr := ul.Last()
 	for i, jm := range zl {
-		fmt.Fprintf(
-			w,
-			"<li><a href=\"%s\">%s</a></li>\n",
-			jm.ID,
-			titles[i],
-		)
+		curr = curr.AppendBang(sxpf.MakeList(
+			sf.MustMake("li"), getSimpleLink(string(jm.ID), titles[i], sf),
+		))
 	}
-	io.WriteString(w, "</ul>\n")
-	writeHTMLFooter(w, false)
+	bodyHtml := sxpf.MakeList(sf.MustMake("body"), sxpf.MakeList(sf.MustMake("h1"), sxpf.MakeString(human)), ul)
+	gen.writeHTMLDocument(w, "", headHtml, bodyHtml)
 }
 
-func writeHTMLHeader(w http.ResponseWriter, lang, prefix string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, "<!DOCTYPE html>\n")
-	if lang == "" {
-		io.WriteString(w, "<html>\n")
-	} else {
-		fmt.Fprintf(w, "<html lang=\"%s\">\n", lang)
-	}
-	io.WriteString(w, `<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="generator" content="Zettel Presenter">
-`)
-	writeDefaultCSS(w, prefix)
+func getHTMLHead(extraCss string, sf sxpf.SymbolFactory) *sxpf.List {
+	symAttr := sf.MustMake(sxhtml.NameSymAttr)
+	return sxpf.MakeList(
+		sf.MustMake("head"),
+		sxpf.MakeList(sf.MustMake("meta"), sxpf.MakeList(symAttr, sxpf.Cons(sf.MustMake("charset"), sxpf.MakeString("utf-8")))),
+		sxpf.MakeList(sf.MustMake("meta"), sxpf.MakeList(
+			symAttr,
+			sxpf.Cons(sf.MustMake("name"), sxpf.MakeString("viewport")),
+			sxpf.Cons(sf.MustMake("content"), sxpf.MakeString("width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no")),
+		)),
+		sxpf.MakeList(sf.MustMake("meta"), sxpf.MakeList(
+			symAttr,
+			sxpf.Cons(sf.MustMake("name"), sxpf.MakeString("generator")),
+			sxpf.Cons(sf.MustMake("content"), sxpf.MakeString("Zettel Presenter")),
+		)),
+		getPrefixedCSS("", extraCss, sf),
+	)
 }
 
 var defaultCSS = []string{
@@ -620,32 +713,58 @@ var defaultCSS = []string{
 	"a.broken { text-decoration: line-through }",
 }
 
-func writeDefaultCSS(w http.ResponseWriter, prefix string) {
-	io.WriteString(w, "<style type=\"text/css\">\n")
-	for _, line := range defaultCSS {
-		io.WriteString(w, prefix)
-		io.WriteString(w, line)
-		io.WriteString(w, "\n")
+func getPrefixedCSS(prefix string, extraCss string, sf sxpf.SymbolFactory) *sxpf.List {
+	var result *sxpf.List
+	if extraCss != "" {
+		result = result.Cons(sxpf.MakeString(extraCss))
 	}
-	io.WriteString(w, "</style>\n")
+	for i := range defaultCSS {
+		result = result.Cons(sxpf.MakeString(prefix + defaultCSS[len(defaultCSS)-i-1] + "\n"))
+	}
+	return result.Cons(sf.MustMake("style"))
 }
 
-func writeHTMLBody(w http.ResponseWriter) { io.WriteString(w, "</head>\n<body>\n") }
-func writeHTMLFooter(w http.ResponseWriter, hasMermaid bool) {
-	if hasMermaid {
-		fmt.Fprintf(w, "<script type=\"text/javascript\">\n//<![CDATA[\n%s//]]>\n</script>\n", mermaid)
-		io.WriteString(w, "<script>mermaid.initialize({startOnLoad:true});</script>\n")
+func getSimpleLink(url string, text *sxpf.List, sf sxpf.SymbolFactory) *sxpf.List {
+	result := sxpf.MakeList(
+		sf.MustMake("a"),
+		sxpf.MakeList(
+			sf.MustMake(sxhtml.NameSymAttr),
+			sxpf.Cons(sf.MustMake("href"), sxpf.MakeString(url)),
+		),
+	)
+	curr := result.Last()
+	for elem := text; elem != nil; elem = elem.Tail() {
+		curr = curr.AppendBang(elem.Car())
 	}
-	io.WriteString(w, "</body>\n</html>\n")
-}
-func writeMeta(w http.ResponseWriter, key, val string) {
-	if val != "" {
-		fmt.Fprintf(w, "<meta name=\"%s\" content=\"%s\" />\n", key, html.EscapeString(val))
-	}
+	return result
 }
 
-//go:embed mermaid/mermaid.min.js
-var mermaid string
+func getSimpleMeta(key, val string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake("meta"),
+		sxpf.MakeList(
+			sf.MustMake(sxhtml.NameSymAttr),
+			sxpf.Cons(sf.MustMake(key), sxpf.MakeString(val)),
+		),
+	)
+}
+
+func getHeadLink(rel, href string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake("link"),
+		sxpf.MakeList(
+			sf.MustMake(sxhtml.NameSymAttr),
+			sxpf.Cons(sf.MustMake("rel"), sxpf.MakeString(rel)),
+			sxpf.Cons(sf.MustMake("href"), sxpf.MakeString(href)),
+		))
+}
+
+func getClassAttr(class string, sf sxpf.SymbolFactory) *sxpf.List {
+	return sxpf.MakeList(
+		sf.MustMake(sxhtml.NameSymAttr),
+		sxpf.Cons(sf.MustMake("class"), sxpf.MakeString(class)),
+	)
+}
 
 //go:embed revealjs
 var revealjs embed.FS
