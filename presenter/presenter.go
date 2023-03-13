@@ -455,22 +455,22 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF 
 	offset := 1
 	if title != nil {
 		offset++
-		slideHtml := sxpf.MakeList(
-			sf.MustMake("section"),
+		hgroupHtml := sxpf.MakeList(
+			sf.MustMake("hgroup"),
 			gen.TransformInline(title, false, false).Cons(getClassAttr("title", sf)).Cons(sf.MustMake("h1")),
 		)
-		slidesHtml = slidesHtml.Last().AppendBang(slideHtml)
-		slideHtml = slideHtml.Last()
+		curr := hgroupHtml.Last()
 		if subtitle := slides.Subtitle(); subtitle != nil {
-			slideHtml = slideHtml.AppendBang(gen.TransformInline(subtitle, false, false).Cons(getClassAttr("subtitle", sf)).Cons(sf.MustMake("h2")))
+			curr = curr.AppendBang(gen.TransformInline(subtitle, false, false).Cons(getClassAttr("subtitle", sf)).Cons(sf.MustMake("h2")))
 		}
 		if author != "" {
-			slideHtml.AppendBang(sxpf.MakeList(
+			curr.AppendBang(sxpf.MakeList(
 				sf.MustMake("p"),
 				getClassAttr("author", sf),
 				sxpf.MakeString(author),
 			))
 		}
+		slidesHtml = slidesHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("section"), hgroupHtml))
 	}
 
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
@@ -580,7 +580,8 @@ aside.handout { border: 0.2rem solid lightgray }
 	headerHtml := sxpf.MakeList(sf.MustMake("header"))
 	if title != nil {
 		offset++
-		curr := headerHtml.Last()
+		curr := sxpf.MakeList(sf.MustMake("hgroup"))
+		headerHtml.Last().AppendBang(curr)
 		curr = curr.AppendBang(
 			gen.Transform(title).
 				Cons(sxpf.MakeList(symAttr, sxpf.Cons(sf.MustMake("id"), sxpf.MakeString("(1)")))).
@@ -722,10 +723,6 @@ func getPrefixedCSS(prefix string, extraCss string, sf sxpf.SymbolFactory) *sxpf
 	for i := range defaultCSS {
 		result = result.Cons(sxpf.MakeString(prefix + defaultCSS[len(defaultCSS)-i-1] + "\n"))
 	}
-	result = result.Cons(sxpf.MakeList(
-		sf.MustMake(sxhtml.NameSymAttr),
-		sxpf.Cons(sf.MustMake("type"), sxpf.MakeString("text/css")),
-	))
 	return result.Cons(sf.MustMake("style"))
 }
 

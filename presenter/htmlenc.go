@@ -282,7 +282,6 @@ func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, 
 	if gen.hasMermaid {
 		curr := bodyHtml.Tail().Last().AppendBang(sxpf.MakeList(
 			sf.MustMake("script"),
-			getJSAttr(sf),
 			sxpf.MakeString("//"),
 			sxpf.MakeList(sf.MustMake(sxhtml.NameSymCDATA), sxpf.MakeString(mermaid)),
 		))
@@ -300,15 +299,7 @@ func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, 
 func getJSScript(jsScript string, sf sxpf.SymbolFactory) *sxpf.List {
 	return sxpf.MakeList(
 		sf.MustMake("script"),
-		getJSAttr(sf),
 		sxpf.MakeList(sf.MustMake(sxhtml.NameSymNoEscape), sxpf.MakeString(jsScript)),
-	)
-}
-
-func getJSAttr(sf sxpf.SymbolFactory) *sxpf.List {
-	return sxpf.MakeList(
-		sf.MustMake(sxhtml.NameSymAttr),
-		sxpf.Cons(sf.MustMake("type"), sxpf.MakeString("text/javascript")),
 	)
 }
 
