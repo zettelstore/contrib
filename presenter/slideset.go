@@ -339,8 +339,8 @@ func (s *slideSet) Images() []api.ZettelID {
 	return result
 }
 
-func (s *slideSet) Title() *sxpf.List    { return getSlideTitle(s.sxMeta) }
-func (s *slideSet) Subtitle() *sxpf.List { return s.sxMeta.GetList(KeySubTitle) }
+func (s *slideSet) Title(zs *sexpr.ZettelSymbols) *sxpf.List { return getSlideTitle(s.sxMeta, zs) }
+func (s *slideSet) Subtitle() *sxpf.List                     { return s.sxMeta.GetList(KeySubTitle) }
 
 func (s *slideSet) Lang() string { return s.sxMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
@@ -574,16 +574,29 @@ func getZettelTitleZid(sxMeta sexpr.Meta, zid api.ZettelID, zs *sexpr.ZettelSymb
 	return sxpf.Cons(zs.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil()))
 }
 
-func getSlideTitle(sxMeta sexpr.Meta) *sxpf.List {
+func getSlideTitle(sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols) *sxpf.List {
 	if title := sxMeta.GetList(KeySlideTitle); title != nil {
 		return title
 	}
-	return sxMeta.GetList(api.KeyTitle)
+	if title := sxMeta.GetString(KeySlideTitle); title != "" {
+		return makeTitleList(title, zs)
+	}
+	if title := sxMeta.GetList(api.KeyTitle); title != nil {
+		return title
+	}
+	if title := sxMeta.GetString(api.KeyTitle); title != "" {
+		return makeTitleList(title, zs)
+	}
+	return nil
 }
 
 func getSlideTitleZid(sxMeta sexpr.Meta, zid api.ZettelID, zs *sexpr.ZettelSymbols) *sxpf.List {
-	if title := getSlideTitle(sxMeta); title != nil {
+	if title := getSlideTitle(sxMeta, zs); title != nil {
 		return title
 	}
-	return sxpf.MakeList(zs.SymInline, sxpf.MakeList(zs.SymText, sxpf.MakeString(string(zid))))
+	return makeTitleList(string(zid), zs)
+}
+
+func makeTitleList(s string, zs *sexpr.ZettelSymbols) *sxpf.List {
+	return sxpf.MakeList(zs.SymInline, sxpf.MakeList(zs.SymText, sxpf.MakeString(s)))
 }

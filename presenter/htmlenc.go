@@ -261,13 +261,6 @@ func (gen *htmlGenerator) Transform(astLst *sxpf.List) *sxpf.List {
 	}
 	return result
 }
-func (gen *htmlGenerator) TransformInline(astLst *sxpf.List, noFootnote, noLinks bool) *sxpf.List {
-	result, err := gen.tr.TransformInline(astLst, noFootnote, noLinks)
-	if err != nil {
-		log.Println("ETRI", err)
-	}
-	return result
-}
 
 func (gen *htmlGenerator) Endnotes() *sxpf.List { return gen.tr.Endnotes() }
 

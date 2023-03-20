@@ -178,9 +178,9 @@ func makeHandler(cfg *slidesConfig) http.HandlerFunc {
 		if zid, suffix := retrieveZidAndSuffix(path); zid != api.InvalidZID {
 			switch suffix {
 			case "reveal", "slide":
-				processSlideSet(w, r, cfg, zid, &revealRenderer{})
+				processSlideSet(w, r, cfg, zid, &revealRenderer{cfg: cfg})
 			case "html":
-				processSlideSet(w, r, cfg, zid, &handoutRenderer{})
+				processSlideSet(w, r, cfg, zid, &handoutRenderer{cfg: cfg})
 			case "content":
 				if content := retrieveContent(w, r, cfg.c, zid); len(content) > 0 {
 					w.Write(content)
@@ -263,7 +263,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zi
 	role := sxMeta.GetString(api.KeyRole)
 	if role == cfg.slideSetRole {
 		if slides := processSlideTOC(ctx, cfg.c, zid, sxMeta, cfg.zs, cfg.astSF); slides != nil {
-			renderSlideTOC(w, slides)
+			renderSlideTOC(w, slides, cfg.zs)
 			return
 		}
 	}
@@ -352,8 +352,8 @@ func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sx
 	return slides
 }
 
-func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
-	showTitle := slides.Title()
+func renderSlideTOC(w http.ResponseWriter, slides *slideSet, zs *sexpr.ZettelSymbols) {
+	showTitle := slides.Title(zs)
 	showSubtitle := slides.Subtitle()
 	offset := 1
 	if showTitle != nil {
@@ -377,7 +377,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet) {
 	curr := lstSlide
 	curr = curr.AppendBang(sxpf.MakeList(sf.MustMake("li"), getSimpleLink("/"+string(slides.zid)+".slide#(1)", gen.Transform(showTitle), sf)))
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
-		slideTitle := gen.TransformInline(si.Slide.title, true, true)
+		slideTitle := gen.Transform(si.Slide.title)
 		curr = curr.AppendBang(sxpf.MakeList(
 			sf.MustMake("li"),
 			getSimpleLink(fmt.Sprintf("/%s.slide#(%d)", slides.zid, si.Number), slideTitle, sf)))
@@ -415,31 +415,32 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, cfg.astSF)
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel, cfg.zs)
-	ren.Prepare(ctx, cfg)
-	ren.Render(w, slides, cfg.astSF, slides.Author(cfg))
+	ren.Prepare(ctx)
+	ren.Render(w, slides, slides.Author(cfg))
 }
 
 type renderer interface {
 	Role() string
-	Prepare(context.Context, *slidesConfig)
-	Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string)
+	Prepare(context.Context)
+	Render(w http.ResponseWriter, slides *slideSet, author string)
 }
 
 type revealRenderer struct {
+	cfg     *slidesConfig
 	userCSS string
 }
 
 func (*revealRenderer) Role() string { return SlideRoleShow }
-func (rr *revealRenderer) Prepare(ctx context.Context, cfg *slidesConfig) {
-	if data, err := cfg.c.GetZettel(ctx, zidSlideCSS, api.PartContent); err == nil && len(data) > 0 {
+func (rr *revealRenderer) Prepare(ctx context.Context) {
+	if data, err := rr.cfg.c.GetZettel(ctx, zidSlideCSS, api.PartContent); err == nil && len(data) > 0 {
 		rr.userCSS = string(data)
 	}
 }
-func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
+func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	sf := sxpf.MakeMappedFactory()
 	gen := newGenerator(sf, slides, rr, true, false)
 
-	title := slides.Title()
+	title := slides.Title(rr.cfg.zs)
 
 	headHtml := getHTMLHead(rr.userCSS, sf)
 	headHtml.Last().AppendBang(getHeadLink("stylesheet", "revealjs/reveal.css", sf)).
@@ -455,11 +456,11 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF 
 		offset++
 		hgroupHtml := sxpf.MakeList(
 			sf.MustMake("hgroup"),
-			gen.TransformInline(title, false, false).Cons(getClassAttr("title", sf)).Cons(sf.MustMake("h1")),
+			gen.Transform(title).Cons(getClassAttr("title", sf)).Cons(sf.MustMake("h1")),
 		)
 		curr := hgroupHtml.Last()
 		if subtitle := slides.Subtitle(); subtitle != nil {
-			curr = curr.AppendBang(gen.TransformInline(subtitle, false, false).Cons(getClassAttr("subtitle", sf)).Cons(sf.MustMake("h2")))
+			curr = curr.AppendBang(gen.Transform(subtitle).Cons(getClassAttr("subtitle", sf)).Cons(sf.MustMake("h2")))
 		}
 		if author != "" {
 			curr.AppendBang(sxpf.MakeList(
@@ -543,16 +544,16 @@ func getJSFileScript(src string, sf sxpf.SymbolFactory) *sxpf.List {
 	)
 }
 
-type handoutRenderer struct{}
+type handoutRenderer struct{ cfg *slidesConfig }
 
-func (*handoutRenderer) Role() string                           { return SlideRoleHandout }
-func (*handoutRenderer) Prepare(context.Context, *slidesConfig) {}
-func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, astSF sxpf.SymbolFactory, author string) {
+func (*handoutRenderer) Role() string            { return SlideRoleHandout }
+func (*handoutRenderer) Prepare(context.Context) {}
+func (hr *handoutRenderer) Render(w http.ResponseWriter, slides *slideSet, author string) {
 	sf := sxpf.MakeMappedFactory()
 	symAttr := sf.MustMake(sxhtml.NameSymAttr)
 	gen := newGenerator(sf, slides, hr, false, true)
 
-	handoutTitle := slides.Title()
+	handoutTitle := slides.Title(hr.cfg.zs)
 	copyright := slides.Copyright()
 	license := slides.License()
 
@@ -656,7 +657,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 	titles := make([]*sxpf.List, len(zl))
 	for i, jm := range zl {
 		if sMeta, err2 := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta, astSF); err2 == nil {
-			titles[i] = gen.TransformInline(getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID, zs), true, true)
+			titles[i] = gen.Transform(getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID, zs))
 		}
 	}
 
