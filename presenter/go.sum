@@ -1,10 +1,10 @@
 codeberg.org/t73fde/sxhtml v0.0.0-20230317170051-24321195e197 h1:6kX7TY25agLFlHNvByO1Jc3GrBA7mu7aOa8tCOniUew=
 codeberg.org/t73fde/sxhtml v0.0.0-20230317170051-24321195e197/go.mod h1:Dp3EwBSsE3TvdPw9QZ4Wm25ZragluVT2OayRFRiq6jk=
-codeberg.org/t73fde/sxpf v0.0.0-20230319111333-7de220f3b475 h1:0OTzV3FYY/Y7YsaVaSzF4Wd17pXzdH6DaSvMeqteJc4=
-codeberg.org/t73fde/sxpf v0.0.0-20230319111333-7de220f3b475/go.mod h1:iSbMygOmtRQYp8pryNKYzRuMibYDSR80smU2b6qm1bc=
+codeberg.org/t73fde/sxpf v0.0.0-20230402144439-010b01f0b42f h1:47JO7DnRfbz90fCdhAlHNaPHjmFezs4moUV9puDH7MI=
+codeberg.org/t73fde/sxpf v0.0.0-20230402144439-010b01f0b42f/go.mod h1:iSbMygOmtRQYp8pryNKYzRuMibYDSR80smU2b6qm1bc=
 golang.org/x/sys v0.6.0 h1:MVltZSvRTcU2ljQOhs94SXPftV6DCNnZViHeQps87pQ=
 golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.6.0 h1:clScbb1cHjoCkyRbWwBEUZ5H/tIFu5TAXIqaZD0Gcjw=
 golang.org/x/term v0.6.0/go.mod h1:m6U89DPEgQRMq3DNkDClhWw02AUbt2daBVO4cn4Hv9U=
-zettelstore.de/c v0.11.0 h1:eD1og+5R2DC3po8JEYUKldONxo69uIKm0jmbNH+NfZI=
-zettelstore.de/c v0.11.0/go.mod h1:aYfHJ/ipU9BvYVBGVwOyfFjuGpf29Pf5Xn+pjcutR6E=
+zettelstore.de/c v0.11.1-0.20230411171606-dc5b7e6e3092 h1:ddP9uIVsvJ3cuBBW+T5i7Q4Ztaw2YYtIyWZjHvyZXyE=
+zettelstore.de/c v0.11.1-0.20230411171606-dc5b7e6e3092/go.mod h1:ELfG2yTn2ntYltkgAhi5xhDkafzlc9a7eTKrmbFJW3E=
