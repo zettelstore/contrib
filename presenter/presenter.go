@@ -30,7 +30,7 @@ import (
 
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/client"
-	"zettelstore.de/c/sexpr"
+	"zettelstore.de/c/sz"
 	"zettelstore.de/c/text"
 )
 
@@ -145,7 +145,7 @@ const (
 type slidesConfig struct {
 	c            *client.Client
 	astSF        sxpf.SymbolFactory
-	zs           *sexpr.ZettelSymbols
+	zs           *sz.ZettelSymbols
 	slideSetRole string
 	author       string
 }
@@ -159,7 +159,7 @@ func getConfig(ctx context.Context, c *client.Client) (slidesConfig, error) {
 	result := slidesConfig{
 		c:            c,
 		astSF:        astSF,
-		zs:           &sexpr.ZettelSymbols{},
+		zs:           &sz.ZettelSymbols{},
 		slideSetRole: DefaultSlideSetRole,
 	}
 	result.zs.InitializeZettelSymbols(astSF)
@@ -253,12 +253,12 @@ func reportRetrieveError(w http.ResponseWriter, zid api.ZettelID, err error, obj
 
 func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zid api.ZettelID) {
 	ctx := r.Context()
-	sxZettel, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, cfg.astSF)
+	sxZettel, err := cfg.c.GetEvaluatedSz(ctx, zid, api.PartZettel, cfg.astSF)
 	if err != nil {
 		reportRetrieveError(w, zid, err, "zettel")
 		return
 	}
-	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
+	sxMeta, sxContent := sz.GetMetaContent(sxZettel)
 
 	role := sxMeta.GetString(api.KeyRole)
 	if role == cfg.slideSetRole {
@@ -305,7 +305,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zi
 	gen.writeHTMLDocument(w, sxMeta.GetString(api.KeyLang), headHtml, bodyHtml)
 }
 
-func getURLHtml(sxMeta sexpr.Meta, sf sxpf.SymbolFactory) *sxpf.List {
+func getURLHtml(sxMeta sz.Meta, sf sxpf.SymbolFactory) *sxpf.List {
 	var lst *sxpf.List
 	for k, v := range sxMeta {
 		if v.Type != api.MetaURL {
@@ -338,7 +338,7 @@ func getURLHtml(sxMeta sexpr.Meta, sf sxpf.SymbolFactory) *sxpf.List {
 	return nil
 }
 
-func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols, astSF sxpf.SymbolFactory) *slideSet {
+func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sxMeta sz.Meta, zs *sz.ZettelSymbols, astSF sxpf.SymbolFactory) *slideSet {
 	o, err := c.GetZettelOrder(ctx, zid)
 	if err != nil {
 		return nil
@@ -346,13 +346,13 @@ func processSlideTOC(ctx context.Context, c *client.Client, zid api.ZettelID, sx
 	slides := newSlideSetMeta(zid, sxMeta, zs)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return c.GetZettel(ctx, zid, api.PartContent) }
 	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
-		return c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, astSF)
+		return c.GetEvaluatedSz(ctx, zid, api.PartZettel, astSF)
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel, zs)
 	return slides
 }
 
-func renderSlideTOC(w http.ResponseWriter, slides *slideSet, zs *sexpr.ZettelSymbols) {
+func renderSlideTOC(w http.ResponseWriter, slides *slideSet, zs *sz.ZettelSymbols) {
 	showTitle := slides.Title(zs)
 	showSubtitle := slides.Subtitle()
 	offset := 1
@@ -404,15 +404,15 @@ func processSlideSet(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, 
 		reportRetrieveError(w, zid, err, "zettel")
 		return
 	}
-	sMeta, err := cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartMeta, cfg.astSF)
+	sMeta, err := cfg.c.GetEvaluatedSz(ctx, zid, api.PartMeta, cfg.astSF)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Unable to read zettel %s: %v", zid, err), http.StatusBadRequest)
 		return
 	}
-	slides := newSlideSet(zid, sexpr.MakeMeta(sMeta), cfg.zs)
+	slides := newSlideSet(zid, sz.MakeMeta(sMeta), cfg.zs)
 	getZettel := func(zid api.ZettelID) ([]byte, error) { return cfg.c.GetZettel(ctx, zid, api.PartContent) }
 	sGetZettel := func(zid api.ZettelID) (sxpf.Object, error) {
-		return cfg.c.GetEvaluatedSexpr(ctx, zid, api.PartZettel, cfg.astSF)
+		return cfg.c.GetEvaluatedSz(ctx, zid, api.PartZettel, cfg.astSF)
 	}
 	setupSlideSet(slides, o.List, getZettel, sGetZettel, cfg.zs)
 	ren.Prepare(ctx)
@@ -635,14 +635,14 @@ func getSlideNoRange(si *slideInfo, sf sxpf.SymbolFactory) *sxpf.List {
 	return nil
 }
 
-func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, sGetZettel sGetZettelFunc, zs *sexpr.ZettelSymbols) {
+func setupSlideSet(slides *slideSet, l []api.ZidMetaJSON, getZettel getZettelContentFunc, sGetZettel sGetZettelFunc, zs *sz.ZettelSymbols) {
 	for _, sl := range l {
 		slides.AddSlide(sl.ID, sGetZettel, zs)
 	}
 	slides.Completion(getZettel, sGetZettel, zs)
 }
 
-func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF sxpf.SymbolFactory, zs *sexpr.ZettelSymbols) {
+func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF sxpf.SymbolFactory, zs *sz.ZettelSymbols) {
 	ctx := r.Context()
 	_, human, zl, err := c.ListZettelJSON(ctx, strings.Join(r.URL.Query()[api.QueryKeyQuery], " "))
 	if err != nil {
@@ -656,8 +656,8 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 
 	titles := make([]*sxpf.List, len(zl))
 	for i, jm := range zl {
-		if sMeta, err2 := c.GetEvaluatedSexpr(ctx, jm.ID, api.PartMeta, astSF); err2 == nil {
-			titles[i] = gen.Transform(getZettelTitleZid(sexpr.MakeMeta(sMeta), jm.ID, zs))
+		if sMeta, err2 := c.GetEvaluatedSz(ctx, jm.ID, api.PartMeta, astSF); err2 == nil {
+			titles[i] = gen.Transform(getZettelTitleZid(sz.MakeMeta(sMeta), jm.ID, zs))
 		}
 	}
 

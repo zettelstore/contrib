@@ -15,7 +15,7 @@ import (
 
 	"codeberg.org/t73fde/sxpf"
 	"zettelstore.de/c/api"
-	"zettelstore.de/c/sexpr"
+	"zettelstore.de/c/sz"
 )
 
 // Constants for zettel metadata keys
@@ -44,7 +44,7 @@ type slide struct {
 	content *sxpf.List // Zettel / slide content
 }
 
-func newSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.List, zs *sexpr.ZettelSymbols) *slide {
+func newSlide(zid api.ZettelID, sxMeta sz.Meta, sxContent *sxpf.List, zs *sz.ZettelSymbols) *slide {
 	return &slide{
 		zid:     zid,
 		title:   getSlideTitleZid(sxMeta, zid, zs),
@@ -103,7 +103,7 @@ func (si *slideInfo) LastChild() *slideInfo {
 	return si.youngest
 }
 
-func (si *slideInfo) SplitChildren(zs *sexpr.ZettelSymbols) {
+func (si *slideInfo) SplitChildren(zs *sz.ZettelSymbols) {
 	var oldest, youngest *slideInfo
 	title := si.Slide.title
 	var content []sxpf.Object
@@ -196,22 +196,22 @@ type image struct {
 // slideSet is the sequence of slides shown.
 type slideSet struct {
 	zid         api.ZettelID
-	sxMeta      sexpr.Meta // Metadata of slideset
-	seqSlide    []*slide   // slide may occur more than once in seq, but should be stored only once
+	sxMeta      sz.Meta  // Metadata of slideset
+	seqSlide    []*slide // slide may occur more than once in seq, but should be stored only once
 	setSlide    map[api.ZettelID]*slide
 	setImage    map[api.ZettelID]image
 	isCompleted bool
 	hasMermaid  bool
-	zs          *sexpr.ZettelSymbols
+	zs          *sz.ZettelSymbols
 }
 
-func newSlideSet(zid api.ZettelID, sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols) *slideSet {
+func newSlideSet(zid api.ZettelID, sxMeta sz.Meta, zs *sz.ZettelSymbols) *slideSet {
 	if len(sxMeta) == 0 {
 		return nil
 	}
 	return newSlideSetMeta(zid, sxMeta, zs)
 }
-func newSlideSetMeta(zid api.ZettelID, sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols) *slideSet {
+func newSlideSetMeta(zid api.ZettelID, sxMeta sz.Meta, zs *sz.ZettelSymbols) *slideSet {
 	return &slideSet{
 		zid:      zid,
 		sxMeta:   sxMeta,
@@ -339,8 +339,8 @@ func (s *slideSet) Images() []api.ZettelID {
 	return result
 }
 
-func (s *slideSet) Title(zs *sexpr.ZettelSymbols) *sxpf.List { return getSlideTitle(s.sxMeta, zs) }
-func (s *slideSet) Subtitle() *sxpf.List                     { return s.sxMeta.GetList(KeySubTitle) }
+func (s *slideSet) Title(zs *sz.ZettelSymbols) *sxpf.List { return getSlideTitle(s.sxMeta, zs) }
+func (s *slideSet) Subtitle() *sxpf.List                  { return s.sxMeta.GetList(KeySubTitle) }
 
 func (s *slideSet) Lang() string { return s.sxMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
@@ -355,7 +355,7 @@ func (s *slideSet) License() string   { return s.sxMeta.GetString(api.KeyLicense
 type getZettelContentFunc func(api.ZettelID) ([]byte, error)
 type sGetZettelFunc func(api.ZettelID) (sxpf.Object, error)
 
-func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc, zs *sexpr.ZettelSymbols) {
+func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc, zs *sz.ZettelSymbols) {
 	if sl, found := s.setSlide[zid]; found {
 		s.seqSlide = append(s.seqSlide, sl)
 		return
@@ -366,7 +366,7 @@ func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc, zs *sex
 		// TODO: add artificial slide with error message / data
 		return
 	}
-	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
+	sxMeta, sxContent := sz.GetMetaContent(sxZettel)
 	if sxMeta == nil || sxContent == nil {
 		// TODO: Add artificial slide with error message
 		return
@@ -376,14 +376,14 @@ func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc, zs *sex
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) AdditionalSlide(zid api.ZettelID, sxMeta sexpr.Meta, sxContent *sxpf.List, zs *sexpr.ZettelSymbols) {
+func (s *slideSet) AdditionalSlide(zid api.ZettelID, sxMeta sz.Meta, sxContent *sxpf.List, zs *sz.ZettelSymbols) {
 	// TODO: if first, add slide with text "additional content"
 	sl := newSlide(zid, sxMeta, sxContent, zs)
 	s.seqSlide = append(s.seqSlide, sl)
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelSexpr sGetZettelFunc, zs *sexpr.ZettelSymbols) {
+func (s *slideSet) Completion(getZettel getZettelContentFunc, getZettelSexpr sGetZettelFunc, zs *sz.ZettelSymbols) {
 	if s.isCompleted {
 		return
 	}
@@ -435,7 +435,7 @@ func (ce *collectEnv) isMarked(zid api.ZettelID) bool {
 }
 
 type collectEnv struct {
-	zs         *sexpr.ZettelSymbols
+	zs         *sz.ZettelSymbols
 	s          *slideSet
 	getZettel  getZettelContentFunc
 	sGetZettel sGetZettelFunc
@@ -516,7 +516,7 @@ func hasMermaidAttribute(args *sxpf.List) bool {
 	if !ok {
 		return false
 	}
-	a := sexpr.GetAttributes(attr)
+	a := sz.GetAttributes(attr)
 	if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
 		return true
 	}
@@ -533,7 +533,7 @@ func (ce *collectEnv) visitZettel(zid api.ZettelID) {
 		// TODO: add artificial slide with error message / data
 		return
 	}
-	sxMeta, sxContent := sexpr.GetMetaContent(sxZettel)
+	sxMeta, sxContent := sz.GetMetaContent(sxZettel)
 	if sxMeta == nil || sxContent == nil {
 		// TODO: Add artificial slide with error message
 		log.Println("MECo", zid)
@@ -567,14 +567,14 @@ func (ce *collectEnv) visitImage(zid api.ZettelID, syntax string) {
 
 // Utility function to retrieve some slide/slideset metadata.
 
-func getZettelTitleZid(sxMeta sexpr.Meta, zid api.ZettelID, zs *sexpr.ZettelSymbols) *sxpf.List {
+func getZettelTitleZid(sxMeta sz.Meta, zid api.ZettelID, zs *sz.ZettelSymbols) *sxpf.List {
 	if title := sxMeta.GetList(api.KeyTitle); title != nil {
 		return title
 	}
 	return sxpf.Cons(zs.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil()))
 }
 
-func getSlideTitle(sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols) *sxpf.List {
+func getSlideTitle(sxMeta sz.Meta, zs *sz.ZettelSymbols) *sxpf.List {
 	if title := sxMeta.GetList(KeySlideTitle); title != nil {
 		return title
 	}
@@ -590,13 +590,13 @@ func getSlideTitle(sxMeta sexpr.Meta, zs *sexpr.ZettelSymbols) *sxpf.List {
 	return nil
 }
 
-func getSlideTitleZid(sxMeta sexpr.Meta, zid api.ZettelID, zs *sexpr.ZettelSymbols) *sxpf.List {
+func getSlideTitleZid(sxMeta sz.Meta, zid api.ZettelID, zs *sz.ZettelSymbols) *sxpf.List {
 	if title := getSlideTitle(sxMeta, zs); title != nil {
 		return title
 	}
 	return makeTitleList(string(zid), zs)
 }
 
-func makeTitleList(s string, zs *sexpr.ZettelSymbols) *sxpf.List {
+func makeTitleList(s string, zs *sz.ZettelSymbols) *sxpf.List {
 	return sxpf.MakeList(zs.SymInline, sxpf.MakeList(zs.SymText, sxpf.MakeString(s)))
 }
