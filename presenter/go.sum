@@ -1,7 +1,7 @@
 codeberg.org/t73fde/sxhtml v0.0.0-20230317170051-24321195e197 h1:6kX7TY25agLFlHNvByO1Jc3GrBA7mu7aOa8tCOniUew=
 codeberg.org/t73fde/sxhtml v0.0.0-20230317170051-24321195e197/go.mod h1:Dp3EwBSsE3TvdPw9QZ4Wm25ZragluVT2OayRFRiq6jk=
-codeberg.org/t73fde/sxpf v0.0.0-20230424101749-3c86e1505e41 h1:U4bNIK3XXFMevPTf4KX+M9dwfNFW4kjHVMnoW5Ngh7c=
-codeberg.org/t73fde/sxpf v0.0.0-20230424101749-3c86e1505e41/go.mod h1:iSbMygOmtRQYp8pryNKYzRuMibYDSR80smU2b6qm1bc=
+codeberg.org/t73fde/sxpf v0.0.0-20230424142310-0cba3df94eee h1:zyOgxeBXrBThNdiOUROJYm3M88SWnYrcKd6yEp0rlVs=
+codeberg.org/t73fde/sxpf v0.0.0-20230424142310-0cba3df94eee/go.mod h1:iSbMygOmtRQYp8pryNKYzRuMibYDSR80smU2b6qm1bc=
 golang.org/x/sys v0.7.0 h1:3jlCCIQZPdOYu1h8BkNvLz8Kgwtae2cagcG/VamtZRU=
 golang.org/x/sys v0.7.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.7.0 h1:BEvjmm5fURWqcfbSKTdpkDXYBrUS1c0m8agp14W48vQ=
