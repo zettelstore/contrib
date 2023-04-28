@@ -711,6 +711,8 @@ var defaultCSS = []string{
 	"td.right,",
 	"th.right { text-align: right }",
 	"ol.zs-endnotes { padding-top: .5rem; border-top: 1px solid; font-size: smaller; margin-left: 2em; }",
+	`a.external::after { content: "➚"; display: inline-block }`,
+	`a.zettel::after { content: "⤳"; display: inline-block }`,
 	"a.broken { text-decoration: line-through }",
 }
 
@@ -719,8 +721,9 @@ func getPrefixedCSS(prefix string, extraCss string, sf sxpf.SymbolFactory) *sxpf
 	if extraCss != "" {
 		result = result.Cons(sxpf.MakeString(extraCss))
 	}
+	symHTML := sf.MustMake("@H")
 	for i := range defaultCSS {
-		result = result.Cons(sxpf.MakeString(prefix + defaultCSS[len(defaultCSS)-i-1] + "\n"))
+		result = result.Cons(sxpf.MakeList(symHTML, sxpf.MakeString(prefix+defaultCSS[len(defaultCSS)-i-1]+"\n")))
 	}
 	return result.Cons(sf.MustMake("style"))
 }

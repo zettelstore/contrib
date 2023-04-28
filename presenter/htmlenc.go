@@ -154,8 +154,9 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 				avals = avals.Cons(sxpf.Cons(symHref, sxpf.MakeString(fmt.Sprintf("#(%d)", si.Number))))
 			} else if extZettelLinks {
 				// TODO: make link absolute
+				avals = addClass(avals, "zettel", sf)
 				attr.SetCdr(avals.Cons(sxpf.Cons(symHref, sxpf.MakeString("/"+zid))))
-				return sxpf.MakeList(sf.MustMake("span"), lst, sxpf.MakeString("\u2933"))
+				return lst
 			}
 			attr.SetCdr(avals)
 			return lst
@@ -178,7 +179,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			avals = avals.Cons(sxpf.Cons(sf.MustMake("target"), sxpf.MakeString("_blank")))
 			avals = avals.Cons(sxpf.Cons(sf.MustMake("rel"), sxpf.MakeString("noopener noreferrer")))
 			attr.SetCdr(avals)
-			return sxpf.MakeList(sf.MustMake("span"), lst, sxpf.MakeString("\u279a"))
+			return lst
 		})
 		te.Rebind(sz.NameSymEmbed, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
 			obj, err := prevFn.Call(nil, args)
