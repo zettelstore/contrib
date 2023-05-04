@@ -20,6 +20,7 @@ import (
 
 	"codeberg.org/t73fde/sxhtml"
 	"codeberg.org/t73fde/sxpf"
+	"codeberg.org/t73fde/sxpf/eval"
 	"zettelstore.de/c/api"
 	"zettelstore.de/c/shtml"
 	"zettelstore.de/c/sz"
@@ -44,8 +45,8 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 		s:  slides,
 	}
 	tr.SetRebinder(func(te *shtml.TransformEnv) {
-		te.Rebind(sz.NameSymRegionBlock, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
-			attr, ok := sxpf.GetList(args.Car())
+		te.Rebind(sz.NameSymRegionBlock, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			attr, ok := sxpf.GetList(args[0])
 			if !ok {
 				return nil
 			}
@@ -57,7 +58,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 						if ren.Role() == SlideRoleShow {
 							classAttr := addClass(nil, "notes", sf)
 							result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
-							result.Tail().SetCdr(args.Tail().Car())
+							result.Tail().SetCdr(args[1])
 							return result
 						}
 						return sxpf.Nil()
@@ -67,7 +68,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 						if ren.Role() == SlideRoleHandout {
 							classAttr := addClass(nil, "handout", sf)
 							result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
-							result.Tail().SetCdr(args.Tail().Car())
+							result.Tail().SetCdr(args[1])
 							return result
 						}
 						return sxpf.Nil()
@@ -84,27 +85,27 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 							return sxpf.Nil()
 						}
 						result := sxpf.MakeList(sf.MustMake("aside"), classAttr.Cons(sf.MustMake(sxhtml.NameSymAttr)))
-						result.Tail().SetCdr(args.Tail().Car())
+						result.Tail().SetCdr(args[1])
 						return result
 					}
 				}
 			}
 
-			obj, err := prevFn.Call(env, args)
+			obj, err := prevFn.Call(eng, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
 			return obj
 		})
-		te.Rebind(sz.NameSymVerbatimEval, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
-			attr, ok := sxpf.GetList(args.Car())
+		te.Rebind(sz.NameSymVerbatimEval, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			attr, ok := sxpf.GetList(args[0])
 			if !ok {
 				return nil
 			}
 			a := sz.GetAttributes(attr)
 			if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
 				gen.hasMermaid = true
-				if mmCode, ok2 := sxpf.GetString(args.Tail().Car()); ok2 {
+				if mmCode, ok2 := sxpf.GetString(args[1]); ok2 {
 					return sxpf.MakeList(
 						sf.MustMake("div"),
 						sxpf.MakeList(
@@ -115,15 +116,15 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 					)
 				}
 			}
-			obj, err := prevFn.Call(env, args)
+			obj, err := prevFn.Call(eng, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
 			return obj
 		})
-		te.Rebind(sz.NameSymVerbatimComment, func(sxpf.Environment, *sxpf.List, sxpf.Callable) sxpf.Object { return sxpf.Nil() })
-		te.Rebind(sz.NameSymLinkZettel, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
-			obj, err := prevFn.Call(env, args)
+		te.Rebind(sz.NameSymVerbatimComment, func(eng *eval.Engine, args []sxpf.Object, _ eval.Callable) sxpf.Object { return sxpf.Nil() })
+		te.Rebind(sz.NameSymLinkZettel, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			obj, err := prevFn.Call(eng, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
@@ -161,8 +162,8 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			attr.SetCdr(avals)
 			return lst
 		})
-		te.Rebind(sz.NameSymLinkExternal, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
-			obj, err := prevFn.Call(env, args)
+		te.Rebind(sz.NameSymLinkExternal, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			obj, err := prevFn.Call(eng, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
@@ -181,8 +182,8 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			attr.SetCdr(avals)
 			return lst
 		})
-		te.Rebind(sz.NameSymEmbed, func(env sxpf.Environment, args *sxpf.List, prevFn sxpf.Callable) sxpf.Object {
-			obj, err := prevFn.Call(nil, args)
+		te.Rebind(sz.NameSymEmbed, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			obj, err := prevFn.Call(eng, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
@@ -205,7 +206,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 				return obj
 			}
 			zid := api.ZettelID(zidVal)
-			syntax, ok := sxpf.GetString(args.Tail().Tail().Car())
+			syntax, ok := sxpf.GetString(args[2])
 			if !ok {
 				return obj
 			}
@@ -248,7 +249,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			attr.SetCdr(avals.Cons(sxpf.Cons(symSrc, sxpf.MakeString(src))))
 			return obj
 		})
-		te.Rebind(sz.NameSymLiteralComment, func(sxpf.Environment, *sxpf.List, sxpf.Callable) sxpf.Object { return sxpf.Nil() })
+		te.Rebind(sz.NameSymLiteralComment, func(*eval.Engine, []sxpf.Object, eval.Callable) sxpf.Object { return sxpf.Nil() })
 	})
 	return &gen
 }
