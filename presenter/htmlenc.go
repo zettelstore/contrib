@@ -45,7 +45,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 		s:  slides,
 	}
 	tr.SetRebinder(func(te *shtml.TransformEnv) {
-		te.Rebind(sz.NameSymRegionBlock, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+		te.Rebind(sz.NameSymRegionBlock, func(args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
 			attr, ok := sxpf.GetList(args[0])
 			if !ok {
 				return nil
@@ -91,13 +91,13 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 				}
 			}
 
-			obj, err := prevFn.Call(eng, args)
+			obj, err := prevFn.Call(nil, nil, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
 			return obj
 		})
-		te.Rebind(sz.NameSymVerbatimEval, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+		te.Rebind(sz.NameSymVerbatimEval, func(args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
 			attr, ok := sxpf.GetList(args[0])
 			if !ok {
 				return nil
@@ -116,15 +116,15 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 					)
 				}
 			}
-			obj, err := prevFn.Call(eng, args)
+			obj, err := prevFn.Call(nil, nil, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
 			return obj
 		})
-		te.Rebind(sz.NameSymVerbatimComment, func(eng *eval.Engine, args []sxpf.Object, _ eval.Callable) sxpf.Object { return sxpf.Nil() })
-		te.Rebind(sz.NameSymLinkZettel, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
-			obj, err := prevFn.Call(eng, args)
+		te.Rebind(sz.NameSymVerbatimComment, func(_ []sxpf.Object, _ eval.Callable) sxpf.Object { return sxpf.Nil() })
+		te.Rebind(sz.NameSymLinkZettel, func(args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			obj, err := prevFn.Call(nil, nil, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
@@ -162,8 +162,8 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			attr.SetCdr(avals)
 			return lst
 		})
-		te.Rebind(sz.NameSymLinkExternal, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
-			obj, err := prevFn.Call(eng, args)
+		te.Rebind(sz.NameSymLinkExternal, func(args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			obj, err := prevFn.Call(nil, nil, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
@@ -182,8 +182,8 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			attr.SetCdr(avals)
 			return lst
 		})
-		te.Rebind(sz.NameSymEmbed, func(eng *eval.Engine, args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
-			obj, err := prevFn.Call(eng, args)
+		te.Rebind(sz.NameSymEmbed, func(args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
+			obj, err := prevFn.Call(nil, nil, args)
 			if err != nil {
 				return sxpf.Nil()
 			}
@@ -249,7 +249,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			attr.SetCdr(avals.Cons(sxpf.Cons(symSrc, sxpf.MakeString(src))))
 			return obj
 		})
-		te.Rebind(sz.NameSymLiteralComment, func(*eval.Engine, []sxpf.Object, eval.Callable) sxpf.Object { return sxpf.Nil() })
+		te.Rebind(sz.NameSymLiteralComment, func([]sxpf.Object, eval.Callable) sxpf.Object { return sxpf.Nil() })
 	})
 	return &gen
 }
@@ -273,7 +273,7 @@ func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, 
 		langAttr = sxpf.MakeList(sf.MustMake(sxhtml.NameSymAttr), sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(lang)))
 	}
 	if gen.hasMermaid {
-		curr := bodyHtml.Tail().Last().AppendBang(sxpf.MakeList(
+		curr := bodyHtml.Tail().LastPair().AppendBang(sxpf.MakeList(
 			sf.MustMake("script"),
 			sxpf.MakeString("//"),
 			sxpf.MakeList(sf.MustMake(sxhtml.NameSymCDATA), sxpf.MakeString(mermaid)),

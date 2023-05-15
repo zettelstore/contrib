@@ -126,7 +126,7 @@ func (si *slideInfo) SplitChildren(zs *sz.ZettelSymbols) {
 		if !ok {
 			break
 		}
-		if level := num.GetInt64(); level != 1 {
+		if level := num.(sxpf.Int64); level != 1 {
 			content = append(content, bn)
 			continue
 		}
@@ -499,7 +499,7 @@ func (ce *collectEnv) visitContent(content *sxpf.List) {
 			} else {
 				ce.visitContent(o)
 			}
-		case *sxpf.Number:
+		case sxpf.Number:
 		case sxpf.String:
 		default:
 			log.Printf("ELEM %T/%v", o, o)

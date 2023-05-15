@@ -1,10 +1,10 @@
-codeberg.org/t73fde/sxhtml v0.0.0-20230317170051-24321195e197 h1:6kX7TY25agLFlHNvByO1Jc3GrBA7mu7aOa8tCOniUew=
-codeberg.org/t73fde/sxhtml v0.0.0-20230317170051-24321195e197/go.mod h1:Dp3EwBSsE3TvdPw9QZ4Wm25ZragluVT2OayRFRiq6jk=
-codeberg.org/t73fde/sxpf v0.0.0-20230504132201-f858231cd85d h1:Q5WTnjY06C8g/3h3KLC/m39xlXnH7IBSO6Z4/t04P+w=
-codeberg.org/t73fde/sxpf v0.0.0-20230504132201-f858231cd85d/go.mod h1:iSbMygOmtRQYp8pryNKYzRuMibYDSR80smU2b6qm1bc=
+codeberg.org/t73fde/sxhtml v0.0.0-20230515165129-a803acc351d4 h1:jgklaIPEUl/8n70wl3LIAb0dvvAykuFij1R2ZST5BsU=
+codeberg.org/t73fde/sxhtml v0.0.0-20230515165129-a803acc351d4/go.mod h1:R9IcTd8uRYlp5NJEoa8KrrnsHD64bSyyYySIaapbLYo=
+codeberg.org/t73fde/sxpf v0.0.0-20230515165026-45d37f6e72a4 h1:xBek0QM7STZ2i44pPnmz1KypSbEOc5oD7o/E4GBuEto=
+codeberg.org/t73fde/sxpf v0.0.0-20230515165026-45d37f6e72a4/go.mod h1:X+XmeukFGzykXmTnR1tyFmyB5kV7UdO8V1sX5gMwdRQ=
 golang.org/x/sys v0.8.0 h1:EBmGv8NaZBZTWvrbjNoL6HVt+IVy3QDQpJs7VRIw3tU=
 golang.org/x/sys v0.8.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.8.0 h1:n5xxQn2i3PC0yLAbjTpNT85q/Kgzcr2gIoX9OrJUols=
 golang.org/x/term v0.8.0/go.mod h1:xPskH00ivmX89bAKVGSKKtLOWNx2+17Eiy94tnKShWo=
-zettelstore.de/c v0.11.1-0.20230504163421-eec041941762 h1:31ztw2/8b8SrSqwglUgA6hZMfCsDOL5HAjagjQcaU1c=
-zettelstore.de/c v0.11.1-0.20230504163421-eec041941762/go.mod h1:R5bBb/od2b/oLE5I4szHBoIN8dwT+mKZGpi2lvTU1I4=
+zettelstore.de/c v0.11.1-0.20230515165225-0726549272bb h1:ZRSqwi3f1mgO5CNFPVibbuTfpYcNwbm994iu1bHro0k=
+zettelstore.de/c v0.11.1-0.20230515165225-0726549272bb/go.mod h1:yy8f/6Va9t4lY8/7BPCARlifNB+l3rJnv+W8LEsVekY=

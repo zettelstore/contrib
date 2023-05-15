@@ -273,7 +273,7 @@ func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zi
 	gen := newGenerator(sf, nil, nil, true, false)
 
 	headHtml := getHTMLHead("", sf)
-	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
+	headHtml.LastPair().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
 
 	headerHtml := sxpf.MakeList(
 		sf.MustMake("header"),
@@ -364,14 +364,14 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet, zs *sz.ZettelSymbol
 	gen := newGenerator(sf, nil, nil, false, false)
 
 	headHtml := getHTMLHead("", sf)
-	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(showTitle))))
+	headHtml.LastPair().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(showTitle))))
 
 	headerHtml := sxpf.MakeList(
 		sf.MustMake("header"),
 		gen.Transform(showTitle).Cons(sf.MustMake("h1")),
 	)
 	if showSubtitle != nil {
-		headerHtml.Last().AppendBang(gen.Transform(showSubtitle).Cons(sf.MustMake("h2")))
+		headerHtml.LastPair().AppendBang(gen.Transform(showSubtitle).Cons(sf.MustMake("h2")))
 	}
 	lstSlide := sxpf.MakeList(sf.MustMake("ol"))
 	curr := lstSlide
@@ -387,7 +387,7 @@ func renderSlideTOC(w http.ResponseWriter, slides *slideSet, zs *sz.ZettelSymbol
 		headerHtml,
 		lstSlide,
 	)
-	bodyHtml.Last().AppendBang(sxpf.MakeList(
+	bodyHtml.LastPair().AppendBang(sxpf.MakeList(
 		sf.MustMake("p"),
 		getSimpleLink("/"+string(slides.zid)+".reveal", sxpf.MakeList(sxpf.MakeString("Reveal")), sf),
 		sxpf.MakeString(", "),
@@ -443,7 +443,7 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 	title := slides.Title(rr.cfg.zs)
 
 	headHtml := getHTMLHead(rr.userCSS, sf)
-	headHtml.Last().AppendBang(getHeadLink("stylesheet", "revealjs/reveal.css", sf)).
+	headHtml.LastPair().AppendBang(getHeadLink("stylesheet", "revealjs/reveal.css", sf)).
 		AppendBang(getHeadLink("stylesheet", "revealjs/theme/white.css", sf)).
 		AppendBang(getHeadLink("stylesheet", "revealjs/plugin/highlight/default.css", sf)).
 		AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(title))))
@@ -458,7 +458,7 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 			sf.MustMake("hgroup"),
 			gen.Transform(title).Cons(getClassAttr("title", sf)).Cons(sf.MustMake("h1")),
 		)
-		curr := hgroupHtml.Last()
+		curr := hgroupHtml.LastPair()
 		if subtitle := slides.Subtitle(); subtitle != nil {
 			curr = curr.AppendBang(gen.Transform(subtitle).Cons(getClassAttr("subtitle", sf)).Cons(sf.MustMake("h2")))
 		}
@@ -469,7 +469,7 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 				sxpf.MakeString(author),
 			))
 		}
-		slidesHtml = slidesHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("section"), hgroupHtml))
+		slidesHtml = slidesHtml.LastPair().AppendBang(sxpf.MakeList(sf.MustMake("section"), hgroupHtml))
 	}
 
 	for si := slides.Slides(SlideRoleShow, offset); si != nil; si = si.Next() {
@@ -478,7 +478,7 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 		rSlideHtml := getRevealSlide(gen, main, lang, sf)
 		if sub := main.Next(); sub != nil {
 			rSlideHtml = sxpf.MakeList(sf.MustMake("section"), rSlideHtml)
-			curr := rSlideHtml.Last()
+			curr := rSlideHtml.LastPair()
 			for ; sub != nil; sub = sub.Next() {
 				curr = curr.AppendBang(getRevealSlide(gen, sub, main.Slide.lang, sf))
 			}
@@ -505,7 +505,7 @@ func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.Symb
 		sxpf.Cons(sf.MustMake("id"), sxpf.MakeString(fmt.Sprintf("(%d)", si.SlideNo))),
 	)
 	if slLang := si.Slide.lang; slLang != "" && slLang != lang {
-		attr.Last().AppendBang(sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(slLang)))
+		attr.LastPair().AppendBang(sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(slLang)))
 	}
 
 	var titleHtml *sxpf.List
@@ -514,7 +514,7 @@ func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.Symb
 	}
 	gen.SetUnique(fmt.Sprintf("%d:", si.Number))
 	slideHtml := sxpf.MakeList(sf.MustMake("section"), attr, titleHtml)
-	curr := slideHtml.Last()
+	curr := slideHtml.LastPair()
 	for content := si.Slide.content; content != nil; content = content.Tail() {
 		curr = curr.AppendBang(gen.Transform(content.Head()))
 	}
@@ -569,7 +569,7 @@ blockquote cite { font-style: normal }
 aside.handout { border: 0.2rem solid lightgray }
 `
 	headHtml := getHTMLHead(extraCss, sf)
-	headHtml.Last().AppendBang(getSimpleMeta("author", author, sf)).
+	headHtml.LastPair().AppendBang(getSimpleMeta("author", author, sf)).
 		AppendBang(getSimpleMeta("copyright", copyright, sf)).
 		AppendBang(getSimpleMeta("license", license, sf)).
 		AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(text.EvaluateInlineString(handoutTitle))))
@@ -580,7 +580,7 @@ aside.handout { border: 0.2rem solid lightgray }
 	if handoutTitle != nil {
 		offset++
 		curr := sxpf.MakeList(sf.MustMake("hgroup"))
-		headerHtml.Last().AppendBang(curr)
+		headerHtml.LastPair().AppendBang(curr)
 		curr = curr.AppendBang(
 			gen.Transform(handoutTitle).
 				Cons(sxpf.MakeList(symAttr, sxpf.Cons(sf.MustMake("id"), sxpf.MakeString("(1)")))).
@@ -604,7 +604,7 @@ aside.handout { border: 0.2rem solid lightgray }
 		sl := si.Slide
 		if slideTitle := sl.title; slideTitle != nil {
 			h1 := sxpf.MakeList(sf.MustMake("h1"), idAttr)
-			h1.Last().ExtendBang(gen.Transform(slideTitle)).AppendBang(getSlideNoRange(si, sf))
+			h1.LastPair().ExtendBang(gen.Transform(slideTitle)).AppendBang(getSlideNoRange(si, sf))
 			curr = curr.AppendBang(h1)
 		} else {
 			curr = curr.AppendBang(sxpf.MakeList(sf.MustMake("a"), idAttr))
@@ -671,10 +671,10 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 	}
 
 	headHtml := getHTMLHead("", sf)
-	headHtml.Last().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(title)))
+	headHtml.LastPair().AppendBang(sxpf.MakeList(sf.MustMake("title"), sxpf.MakeString(title)))
 
 	ul := sxpf.MakeList(sf.MustMake("ul"))
-	curr := ul.Last()
+	curr := ul.LastPair()
 	for i, jm := range zl {
 		curr = curr.AppendBang(sxpf.MakeList(
 			sf.MustMake("li"), getSimpleLink(string(jm.ID), titles[i], sf),
@@ -736,7 +736,7 @@ func getSimpleLink(url string, text *sxpf.List, sf sxpf.SymbolFactory) *sxpf.Lis
 			sxpf.Cons(sf.MustMake("href"), sxpf.MakeString(url)),
 		),
 	)
-	curr := result.Last()
+	curr := result.LastPair()
 	for elem := text; elem != nil; elem = elem.Tail() {
 		curr = curr.AppendBang(elem.Car())
 	}
