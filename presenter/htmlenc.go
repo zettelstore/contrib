@@ -75,7 +75,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 					}
 				case "both":
 					if ren != nil {
-						var classAttr *sxpf.List
+						var classAttr *sxpf.Cell
 						switch ren.Role() {
 						case SlideRoleShow:
 							classAttr = addClass(nil, "notes", sf)
@@ -256,7 +256,7 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 func (gen *htmlGenerator) SetUnique(s string)            { gen.tr.SetUnique(s) }
 func (gen *htmlGenerator) SetCurrentSlide(si *slideInfo) { gen.curSlide = si }
 
-func (gen *htmlGenerator) Transform(astLst *sxpf.List) *sxpf.List {
+func (gen *htmlGenerator) Transform(astLst *sxpf.Cell) *sxpf.Cell {
 	result, err := gen.tr.Transform(astLst)
 	if err != nil {
 		log.Println("ETRA", err)
@@ -264,11 +264,11 @@ func (gen *htmlGenerator) Transform(astLst *sxpf.List) *sxpf.List {
 	return result
 }
 
-func (gen *htmlGenerator) Endnotes() *sxpf.List { return gen.tr.Endnotes() }
+func (gen *htmlGenerator) Endnotes() *sxpf.Cell { return gen.tr.Endnotes() }
 
-func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, headHtml, bodyHtml *sxpf.List) {
+func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, headHtml, bodyHtml *sxpf.Cell) {
 	sf := gen.tr.SymbolFactory()
-	var langAttr *sxpf.List
+	var langAttr *sxpf.Cell
 	if lang != "" {
 		langAttr = sxpf.MakeList(sf.MustMake(sxhtml.NameSymAttr), sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(lang)))
 	}
@@ -289,14 +289,14 @@ func (gen *htmlGenerator) writeHTMLDocument(w http.ResponseWriter, lang string, 
 	g.WriteHTML(w, zettelHtml)
 }
 
-func getJSScript(jsScript string, sf sxpf.SymbolFactory) *sxpf.List {
+func getJSScript(jsScript string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	return sxpf.MakeList(
 		sf.MustMake("script"),
 		sxpf.MakeList(sf.MustMake(sxhtml.NameSymNoEscape), sxpf.MakeString(jsScript)),
 	)
 }
 
-func addClass(alist *sxpf.List, val string, sf sxpf.SymbolFactory) *sxpf.List {
+func addClass(alist *sxpf.Cell, val string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	symClass := sf.MustMake("class")
 	if p := alist.Assoc(symClass); p != nil {
 		if s, ok := sxpf.GetString(p.Cdr()); ok {

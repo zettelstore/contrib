@@ -305,8 +305,8 @@ func processZettel(w http.ResponseWriter, r *http.Request, cfg *slidesConfig, zi
 	gen.writeHTMLDocument(w, sxMeta.GetString(api.KeyLang), headHtml, bodyHtml)
 }
 
-func getURLHtml(sxMeta sz.Meta, sf sxpf.SymbolFactory) *sxpf.List {
-	var lst *sxpf.List
+func getURLHtml(sxMeta sz.Meta, sf sxpf.SymbolFactory) *sxpf.Cell {
+	var lst *sxpf.Cell
 	for k, v := range sxMeta {
 		if v.Type != api.MetaURL {
 			continue
@@ -498,7 +498,7 @@ func (rr *revealRenderer) Render(w http.ResponseWriter, slides *slideSet, author
 	gen.writeHTMLDocument(w, lang, headHtml, bodyHtml)
 }
 
-func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.SymbolFactory) *sxpf.List {
+func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	symAttr := sf.MustMake(sxhtml.NameSymAttr)
 	attr := sxpf.MakeList(
 		symAttr,
@@ -508,7 +508,7 @@ func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.Symb
 		attr.LastPair().AppendBang(sxpf.Cons(sf.MustMake("lang"), sxpf.MakeString(slLang)))
 	}
 
-	var titleHtml *sxpf.List
+	var titleHtml *sxpf.Cell
 	if title := si.Slide.title; title != nil {
 		titleHtml = gen.Transform(title).Cons(sf.MustMake("h1"))
 	}
@@ -534,7 +534,7 @@ func getRevealSlide(gen *htmlGenerator, si *slideInfo, lang string, sf sxpf.Symb
 	return slideHtml
 }
 
-func getJSFileScript(src string, sf sxpf.SymbolFactory) *sxpf.List {
+func getJSFileScript(src string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	return sxpf.MakeList(
 		sf.MustMake("script"),
 		sxpf.MakeList(
@@ -622,7 +622,7 @@ aside.handout { border: 0.2rem solid lightgray }
 	gen.writeHTMLDocument(w, lang, headHtml, bodyHtml)
 }
 
-func getSlideNoRange(si *slideInfo, sf sxpf.SymbolFactory) *sxpf.List {
+func getSlideNoRange(si *slideInfo, sf sxpf.SymbolFactory) *sxpf.Cell {
 	if fromSlideNo := si.SlideNo; fromSlideNo > 0 {
 		lstSlNo := sxpf.MakeList(sf.MustMake(sxhtml.NameSymNoEscape))
 		if toSlideNo := si.LastChild().SlideNo; fromSlideNo < toSlideNo {
@@ -654,7 +654,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 	sf := sxpf.MakeMappedFactory()
 	gen := newGenerator(sf, nil, nil, false, false)
 
-	titles := make([]*sxpf.List, len(zl))
+	titles := make([]*sxpf.Cell, len(zl))
 	for i, jm := range zl {
 		if sMeta, err2 := c.GetEvaluatedSz(ctx, jm.ID, api.PartMeta, astSF); err2 == nil {
 			titles[i] = gen.Transform(getZettelTitleZid(sz.MakeMeta(sMeta), jm.ID, zs))
@@ -684,7 +684,7 @@ func processList(w http.ResponseWriter, r *http.Request, c *client.Client, astSF
 	gen.writeHTMLDocument(w, "", headHtml, bodyHtml)
 }
 
-func getHTMLHead(extraCss string, sf sxpf.SymbolFactory) *sxpf.List {
+func getHTMLHead(extraCss string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	symAttr := sf.MustMake(sxhtml.NameSymAttr)
 	return sxpf.MakeList(
 		sf.MustMake("head"),
@@ -716,8 +716,8 @@ var defaultCSS = []string{
 	"a.broken { text-decoration: line-through }",
 }
 
-func getPrefixedCSS(prefix string, extraCss string, sf sxpf.SymbolFactory) *sxpf.List {
-	var result *sxpf.List
+func getPrefixedCSS(prefix string, extraCss string, sf sxpf.SymbolFactory) *sxpf.Cell {
+	var result *sxpf.Cell
 	if extraCss != "" {
 		result = result.Cons(sxpf.MakeString(extraCss))
 	}
@@ -728,7 +728,7 @@ func getPrefixedCSS(prefix string, extraCss string, sf sxpf.SymbolFactory) *sxpf
 	return result.Cons(sf.MustMake("style"))
 }
 
-func getSimpleLink(url string, text *sxpf.List, sf sxpf.SymbolFactory) *sxpf.List {
+func getSimpleLink(url string, text *sxpf.Cell, sf sxpf.SymbolFactory) *sxpf.Cell {
 	result := sxpf.MakeList(
 		sf.MustMake("a"),
 		sxpf.MakeList(
@@ -743,7 +743,7 @@ func getSimpleLink(url string, text *sxpf.List, sf sxpf.SymbolFactory) *sxpf.Lis
 	return result
 }
 
-func getSimpleMeta(key, val string, sf sxpf.SymbolFactory) *sxpf.List {
+func getSimpleMeta(key, val string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	return sxpf.MakeList(
 		sf.MustMake("meta"),
 		sxpf.MakeList(
@@ -753,7 +753,7 @@ func getSimpleMeta(key, val string, sf sxpf.SymbolFactory) *sxpf.List {
 	)
 }
 
-func getHeadLink(rel, href string, sf sxpf.SymbolFactory) *sxpf.List {
+func getHeadLink(rel, href string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	return sxpf.MakeList(
 		sf.MustMake("link"),
 		sxpf.MakeList(
@@ -763,7 +763,7 @@ func getHeadLink(rel, href string, sf sxpf.SymbolFactory) *sxpf.List {
 		))
 }
 
-func getClassAttr(class string, sf sxpf.SymbolFactory) *sxpf.List {
+func getClassAttr(class string, sf sxpf.SymbolFactory) *sxpf.Cell {
 	return sxpf.MakeList(
 		sf.MustMake(sxhtml.NameSymAttr),
 		sxpf.Cons(sf.MustMake("class"), sxpf.MakeString(class)),

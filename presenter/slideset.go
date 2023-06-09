@@ -38,13 +38,13 @@ const (
 // Slide is one slide that is shown one or more times.
 type slide struct {
 	zid     api.ZettelID // The zettel identifier
-	title   *sxpf.List
+	title   *sxpf.Cell
 	lang    string
 	role    string
-	content *sxpf.List // Zettel / slide content
+	content *sxpf.Cell // Zettel / slide content
 }
 
-func newSlide(zid api.ZettelID, sxMeta sz.Meta, sxContent *sxpf.List, zs *sz.ZettelSymbols) *slide {
+func newSlide(zid api.ZettelID, sxMeta sz.Meta, sxContent *sxpf.Cell, zs *sz.ZettelSymbols) *slide {
 	return &slide{
 		zid:     zid,
 		title:   getSlideTitleZid(sxMeta, zid, zs),
@@ -53,7 +53,7 @@ func newSlide(zid api.ZettelID, sxMeta sz.Meta, sxContent *sxpf.List, zs *sz.Zet
 		content: sxContent,
 	}
 }
-func (sl *slide) MakeChild(sxTitle, sxContent *sxpf.List) *slide {
+func (sl *slide) MakeChild(sxTitle, sxContent *sxpf.Cell) *slide {
 	return &slide{
 		zid:     sl.zid,
 		title:   sxTitle,
@@ -339,8 +339,8 @@ func (s *slideSet) Images() []api.ZettelID {
 	return result
 }
 
-func (s *slideSet) Title(zs *sz.ZettelSymbols) *sxpf.List { return getSlideTitle(s.sxMeta, zs) }
-func (s *slideSet) Subtitle() *sxpf.List                  { return s.sxMeta.GetList(KeySubTitle) }
+func (s *slideSet) Title(zs *sz.ZettelSymbols) *sxpf.Cell { return getSlideTitle(s.sxMeta, zs) }
+func (s *slideSet) Subtitle() *sxpf.Cell                  { return s.sxMeta.GetList(KeySubTitle) }
 
 func (s *slideSet) Lang() string { return s.sxMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
@@ -376,7 +376,7 @@ func (s *slideSet) AddSlide(zid api.ZettelID, sGetZettel sGetZettelFunc, zs *sz.
 	s.setSlide[zid] = sl
 }
 
-func (s *slideSet) AdditionalSlide(zid api.ZettelID, sxMeta sz.Meta, sxContent *sxpf.List, zs *sz.ZettelSymbols) {
+func (s *slideSet) AdditionalSlide(zid api.ZettelID, sxMeta sz.Meta, sxContent *sxpf.Cell, zs *sz.ZettelSymbols) {
 	// TODO: if first, add slide with text "additional content"
 	sl := newSlide(zid, sxMeta, sxContent, zs)
 	s.seqSlide = append(s.seqSlide, sl)
@@ -444,13 +444,13 @@ type collectEnv struct {
 	hasMermaid bool
 }
 
-func (ce *collectEnv) visitContent(content *sxpf.List) {
+func (ce *collectEnv) visitContent(content *sxpf.Cell) {
 	if content == nil {
 		return
 	}
 	for elem := content.Tail(); elem != nil; elem = elem.Tail() {
 		switch o := elem.Car().(type) {
-		case *sxpf.List:
+		case *sxpf.Cell:
 			sym, ok := sxpf.GetSymbol(o.Car())
 			if !ok {
 				continue
@@ -507,7 +507,7 @@ func (ce *collectEnv) visitContent(content *sxpf.List) {
 	}
 }
 
-func hasMermaidAttribute(args *sxpf.List) bool {
+func hasMermaidAttribute(args *sxpf.Cell) bool {
 	lst, ok := sxpf.GetList(args.Car())
 	if !ok {
 		return false
@@ -567,14 +567,14 @@ func (ce *collectEnv) visitImage(zid api.ZettelID, syntax string) {
 
 // Utility function to retrieve some slide/slideset metadata.
 
-func getZettelTitleZid(sxMeta sz.Meta, zid api.ZettelID, zs *sz.ZettelSymbols) *sxpf.List {
+func getZettelTitleZid(sxMeta sz.Meta, zid api.ZettelID, zs *sz.ZettelSymbols) *sxpf.Cell {
 	if title := sxMeta.GetList(api.KeyTitle); title != nil {
 		return title
 	}
 	return sxpf.Cons(zs.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil()))
 }
 
-func getSlideTitle(sxMeta sz.Meta, zs *sz.ZettelSymbols) *sxpf.List {
+func getSlideTitle(sxMeta sz.Meta, zs *sz.ZettelSymbols) *sxpf.Cell {
 	if title := sxMeta.GetList(KeySlideTitle); title != nil {
 		return title
 	}
@@ -590,13 +590,13 @@ func getSlideTitle(sxMeta sz.Meta, zs *sz.ZettelSymbols) *sxpf.List {
 	return nil
 }
 
-func getSlideTitleZid(sxMeta sz.Meta, zid api.ZettelID, zs *sz.ZettelSymbols) *sxpf.List {
+func getSlideTitleZid(sxMeta sz.Meta, zid api.ZettelID, zs *sz.ZettelSymbols) *sxpf.Cell {
 	if title := getSlideTitle(sxMeta, zs); title != nil {
 		return title
 	}
 	return makeTitleList(string(zid), zs)
 }
 
-func makeTitleList(s string, zs *sz.ZettelSymbols) *sxpf.List {
+func makeTitleList(s string, zs *sz.ZettelSymbols) *sxpf.Cell {
 	return sxpf.MakeList(zs.SymInline, sxpf.MakeList(zs.SymText, sxpf.MakeString(s)))
 }
