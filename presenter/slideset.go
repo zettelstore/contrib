@@ -109,12 +109,12 @@ func (si *slideInfo) SplitChildren(zs *sz.ZettelSymbols) {
 	var content []sxpf.Object
 	// First element of si.Slide.content is the BLOCK symbol. Ignore it.
 	for elem := si.Slide.content.Tail(); !elem.IsNil(); elem = elem.Tail() {
-		bn, ok := sxpf.GetList(elem.Car())
-		if !ok || bn == nil {
+		bn, isCell := sxpf.GetCell(elem.Car())
+		if !isCell || bn == nil {
 			break
 		}
-		sym, ok := sxpf.GetSymbol(bn.Car())
-		if !ok {
+		sym, isSymbol := sxpf.GetSymbol(bn.Car())
+		if !isSymbol {
 			break
 		}
 		if !sym.IsEqual(zs.SymHeading) {
@@ -122,8 +122,8 @@ func (si *slideInfo) SplitChildren(zs *sz.ZettelSymbols) {
 			continue
 		}
 		levelPair := bn.Tail()
-		num, ok := sxpf.GetNumber(levelPair.Car())
-		if !ok {
+		num, isNumber := sxpf.GetNumber(levelPair.Car())
+		if !isNumber {
 			break
 		}
 		if level := num.(sxpf.Int64); level != 1 {
@@ -340,7 +340,7 @@ func (s *slideSet) Images() []api.ZettelID {
 }
 
 func (s *slideSet) Title(zs *sz.ZettelSymbols) *sxpf.Cell { return getSlideTitle(s.sxMeta, zs) }
-func (s *slideSet) Subtitle() *sxpf.Cell                  { return s.sxMeta.GetList(KeySubTitle) }
+func (s *slideSet) Subtitle() *sxpf.Cell                  { return s.sxMeta.GetCell(KeySubTitle) }
 
 func (s *slideSet) Lang() string { return s.sxMeta.GetString(api.KeyLang) }
 func (s *slideSet) Author(cfg *slidesConfig) string {
@@ -471,12 +471,12 @@ func (ce *collectEnv) visitContent(content *sxpf.Cell) {
 				}
 			} else if zs.SymEmbed.IsEql(sym) {
 				argRef := o.Tail().Tail()
-				qref, isList := sxpf.GetList(argRef.Car())
-				if !isList {
+				qref, isCell := sxpf.GetCell(argRef.Car())
+				if !isCell {
 					continue
 				}
-				ref, isList := sxpf.GetList(qref.Tail().Car())
-				if !isList {
+				ref, isCell := sxpf.GetCell(qref.Tail().Car())
+				if !isCell {
 					continue
 				}
 				symEmbedRefState, isSymbol := sxpf.GetSymbol(ref.Car())
@@ -508,12 +508,12 @@ func (ce *collectEnv) visitContent(content *sxpf.Cell) {
 }
 
 func hasMermaidAttribute(args *sxpf.Cell) bool {
-	lst, ok := sxpf.GetList(args.Car())
-	if !ok {
+	lst, isCell := sxpf.GetCell(args.Car())
+	if !isCell {
 		return false
 	}
-	attr, ok := sxpf.GetList(lst.Tail().Car())
-	if !ok {
+	attr, isCell := sxpf.GetCell(lst.Tail().Car())
+	if !isCell {
 		return false
 	}
 	a := sz.GetAttributes(attr)
@@ -568,20 +568,20 @@ func (ce *collectEnv) visitImage(zid api.ZettelID, syntax string) {
 // Utility function to retrieve some slide/slideset metadata.
 
 func getZettelTitleZid(sxMeta sz.Meta, zid api.ZettelID, zs *sz.ZettelSymbols) *sxpf.Cell {
-	if title := sxMeta.GetList(api.KeyTitle); title != nil {
+	if title := sxMeta.GetCell(api.KeyTitle); title != nil {
 		return title
 	}
 	return sxpf.Cons(zs.SymText, sxpf.Cons(sxpf.MakeString(string(zid)), sxpf.Nil()))
 }
 
 func getSlideTitle(sxMeta sz.Meta, zs *sz.ZettelSymbols) *sxpf.Cell {
-	if title := sxMeta.GetList(KeySlideTitle); title != nil {
+	if title := sxMeta.GetCell(KeySlideTitle); title != nil {
 		return title
 	}
 	if title := sxMeta.GetString(KeySlideTitle); title != "" {
 		return makeTitleList(title, zs)
 	}
-	if title := sxMeta.GetList(api.KeyTitle); title != nil {
+	if title := sxMeta.GetCell(api.KeyTitle); title != nil {
 		return title
 	}
 	if title := sxMeta.GetString(api.KeyTitle); title != "" {

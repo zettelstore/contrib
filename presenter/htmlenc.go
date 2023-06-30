@@ -46,8 +46,8 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 	}
 	tr.SetRebinder(func(te *shtml.TransformEnv) {
 		te.Rebind(sz.NameSymRegionBlock, func(args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
-			attr, ok := sxpf.GetList(args[0])
-			if !ok {
+			attr, isCell := sxpf.GetCell(args[0])
+			if !isCell {
 				return nil
 			}
 			a := sz.GetAttributes(attr)
@@ -98,14 +98,14 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			return obj
 		})
 		te.Rebind(sz.NameSymVerbatimEval, func(args []sxpf.Object, prevFn eval.Callable) sxpf.Object {
-			attr, ok := sxpf.GetList(args[0])
-			if !ok {
+			attr, isCell := sxpf.GetCell(args[0])
+			if !isCell {
 				return nil
 			}
 			a := sz.GetAttributes(attr)
 			if syntax, found := a.Get(""); found && syntax == SyntaxMermaid {
 				gen.hasMermaid = true
-				if mmCode, ok2 := sxpf.GetString(args[1]); ok2 {
+				if mmCode, isString := sxpf.GetString(args[1]); isString {
 					return sxpf.MakeList(
 						sf.MustMake("div"),
 						sxpf.MakeList(
@@ -128,16 +128,16 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			if err != nil {
 				return sxpf.Nil()
 			}
-			lst, ok := sxpf.GetList(obj)
-			if !ok {
+			lst, isCell := sxpf.GetCell(obj)
+			if !isCell {
 				return obj
 			}
-			sym, ok := sxpf.GetSymbol(lst.Car())
-			if !ok || !sym.IsEqual(sf.MustMake("a")) {
+			sym, isSymbol := sxpf.GetSymbol(lst.Car())
+			if !isSymbol || !sym.IsEqual(sf.MustMake("a")) {
 				return obj
 			}
-			attr, ok := sxpf.GetList(lst.Tail().Car())
-			if !ok {
+			attr, isCell := sxpf.GetCell(lst.Tail().Car())
+			if !isCell {
 				return obj
 			}
 			avals := attr.Tail()
@@ -146,8 +146,8 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			if p == nil {
 				return obj
 			}
-			refVal, ok := sxpf.GetString(p.Cdr())
-			if !ok {
+			refVal, isString := sxpf.GetString(p.Cdr())
+			if !isString {
 				return obj
 			}
 			zid, _, _ := strings.Cut(refVal.String(), "#")
@@ -167,12 +167,12 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			if err != nil {
 				return sxpf.Nil()
 			}
-			lst, ok := sxpf.GetList(obj)
-			if !ok {
+			lst, isCell := sxpf.GetCell(obj)
+			if !isCell {
 				return obj
 			}
-			attr, ok := sxpf.GetList(lst.Tail().Car())
-			if !ok {
+			attr, isCell := sxpf.GetCell(lst.Tail().Car())
+			if !isCell {
 				return obj
 			}
 			avals := attr.Tail()
@@ -187,12 +187,12 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			if err != nil {
 				return sxpf.Nil()
 			}
-			lst, ok := sxpf.GetList(obj)
-			if !ok {
+			cell, isCell := sxpf.GetCell(obj)
+			if !isCell {
 				return obj
 			}
-			attr, ok := sxpf.GetList(lst.Tail().Car())
-			if !ok {
+			attr, isCell := sxpf.GetCell(cell.Tail().Car())
+			if !isCell {
 				return obj
 			}
 			avals := attr.Tail()
@@ -201,13 +201,13 @@ func newGenerator(sf sxpf.SymbolFactory, slides *slideSet, ren renderer, extZett
 			if p == nil {
 				return obj
 			}
-			zidVal, ok := sxpf.GetString(p.Cdr())
-			if !ok {
+			zidVal, isString := sxpf.GetString(p.Cdr())
+			if !isString {
 				return obj
 			}
 			zid := api.ZettelID(zidVal)
-			syntax, ok := sxpf.GetString(args[2])
-			if !ok {
+			syntax, isString := sxpf.GetString(args[2])
+			if !isString {
 				return obj
 			}
 			if syntax == api.ValueSyntaxSVG {
