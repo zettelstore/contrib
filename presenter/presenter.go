@@ -37,7 +37,7 @@ import (
 // Constants for minimum required version.
 const (
 	minMajor = 0
-	minMinor = 11
+	minMinor = 13
 )
 
 func hasVersion(major, minor int) bool {
@@ -92,7 +92,7 @@ func getClient(ctx context.Context, base string) (*client.Client, error) {
 		u.User = nil
 	}
 	c := client.NewClient(u)
-	ver, err := c.GetVersionJSON(ctx)
+	ver, err := c.GetVersionInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
