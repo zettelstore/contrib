@@ -1,6 +1,6 @@
 module zettelstore.de/contrib/presenter
 
-go 1.19
+go 1.20
 
 require (
 	codeberg.org/t73fde/sxhtml v0.1.2-0.20230630103411-04297c5fe584
@@ -9,4 +9,4 @@ require (
 	zettelstore.de/c v0.12.1-0.20230701141241-4162aa0ffd8f
 )
 
-require golang.org/x/sys v0.9.0 // indirect
+require golang.org/x/sys v0.10.0 // indirect
