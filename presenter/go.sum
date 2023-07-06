@@ -4,7 +4,7 @@ codeberg.org/t73fde/sxpf v0.2.1-0.20230630130900-2d3104ccfcd7 h1:Or4nYgS+L9unDAQ
 codeberg.org/t73fde/sxpf v0.2.1-0.20230630130900-2d3104ccfcd7/go.mod h1:X+XmeukFGzykXmTnR1tyFmyB5kV7UdO8V1sX5gMwdRQ=
 golang.org/x/sys v0.10.0 h1:SqMFp9UcQJZa+pmYuAKjd9xq1f0j5rLcDIk0mj4qAsA=
 golang.org/x/sys v0.10.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
-golang.org/x/term v0.9.0 h1:GRRCnKYhdQrD8kfRAdQ6Zcw1P0OcELxGLKJvtjVMZ28=
-golang.org/x/term v0.9.0/go.mod h1:M6DEAAIenWoTxdKrOltXcmDY3rSplQUkrvaDU5FcQyo=
+golang.org/x/term v0.10.0 h1:3R7pNqamzBraeqj/Tj8qt1aQ2HpmlC+Cx/qL/7hn4/c=
+golang.org/x/term v0.10.0/go.mod h1:lpqdcUyK/oCiQxvxVrppt5ggO2KCZ5QblwqPnfZ6d5o=
 zettelstore.de/c v0.12.1-0.20230701141241-4162aa0ffd8f h1:o1aN0CRgypBaiwJ9CuFhGxY0KE29GZGHAn/kISIH8YU=
 zettelstore.de/c v0.12.1-0.20230701141241-4162aa0ffd8f/go.mod h1:3bwt7uthqf9EM3vupqe+XgPjyqMtBthzyG6HUQiuKeM=
